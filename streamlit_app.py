@@ -209,15 +209,16 @@ def obtener_pedidos():
     return pedidos_data
 
 def obtener_inventario_actual(productos_map, movimientos_inventario):
-    """Calcula el inventario actual a partir de los movimientos."""
+    """Calcula el inventario actual a partir de los movimientos, ignorando movimientos de productos eliminados."""
     inventario_actual = {id_ref: 0 for id_ref in productos_map.keys()}
     for mov in movimientos_inventario:
         id_ref = mov['id_referencia']
         cantidad = mov['cantidad']
-        if mov['tipo_movimiento'] == 'entrada':
-            inventario_actual[id_ref] += cantidad
-        elif mov['tipo_movimiento'] == 'salida':
-            inventario_actual[id_ref] -= cantidad
+        if id_ref in inventario_actual:
+            if mov['tipo_movimiento'] == 'entrada':
+                inventario_actual[id_ref] += cantidad
+            elif mov['tipo_movimiento'] == 'salida':
+                inventario_actual[id_ref] -= cantidad
     
     df_inventario = pd.DataFrame(list(inventario_actual.items()), columns=['ID Referencia', 'Cantidad'])
     df_inventario['Nombre Referencia'] = df_inventario['ID Referencia'].map({k: v['nombre'] for k, v in productos_map.items()})
