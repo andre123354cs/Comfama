@@ -4,7 +4,7 @@ import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore import Client
-from datetime import datetime
+from datetime import datetime, date
 import random # Importar el módulo random
 
 # --- Configuración de la página y Estilos Futuristas ---
@@ -509,10 +509,88 @@ def pagina_facturacion():
     else:
         st.info("Selecciona una o más opciones para generar la factura.")
 
+def pagina_ventas():
+    st.header('📈 Gestión de Ventas')
+    st.write('Analiza los pedidos despachados y pagados.')
+
+    productos_map = obtener_productos()
+    pedidos = obtener_pedidos()
+
+    if not pedidos:
+        st.info("Aún no hay pedidos registrados para el análisis.")
+        return
+    
+    df_pedidos = pd.DataFrame(pedidos)
+    df_pedidos['fecha'] = pd.to_datetime(df_pedidos['fecha']).dt.date
+
+    # --- Filtros ---
+    st.markdown("---")
+    st.subheader('Filtros de Búsqueda')
+    col_estado, col_encargado, col_fechas = st.columns([1, 2, 2])
+
+    with col_estado:
+        estado_filtro = st.selectbox(
+            "Estado del Pedido",
+            options=['Todos', 'pendiente', 'pagado']
+        )
+    
+    with col_encargado:
+        encargados_disponibles = sorted(df_pedidos['encargado'].unique())
+        encargados_seleccionados = st.multiselect(
+            "Filtrar por Encargado",
+            options=encargados_disponibles,
+            default=encargados_disponibles
+        )
+
+    with col_fechas:
+        fecha_inicio_filtro, fecha_fin_filtro = st.date_input(
+            "Filtrar por Rango de Fechas",
+            value=(df_pedidos['fecha'].min(), df_pedidos['fecha'].max())
+        )
+
+    # --- Aplicar filtros ---
+    df_filtrado = df_pedidos.copy()
+    
+    if estado_filtro != 'Todos':
+        df_filtrado = df_filtrado[df_filtrado['estado'] == estado_filtro]
+    
+    df_filtrado = df_filtrado[df_filtrado['encargado'].isin(encargados_seleccionados)]
+    
+    df_filtrado = df_filtrado[
+        (df_filtrado['fecha'] >= fecha_inicio_filtro) & 
+        (df_filtrado['fecha'] <= fecha_fin_filtro)
+    ]
+    
+    # Procesar los items para la visualización
+    def format_items(items_list):
+        if not isinstance(items_list, list):
+            return ""
+        return ", ".join([f"{productos_map.get(item['id_referencia'], {'nombre': item['id_referencia']})['nombre']} x{item['cantidad']}" for item in items_list])
+
+    df_filtrado['Productos'] = df_filtrado['items'].apply(format_items)
+    df_display = df_filtrado[['fecha', 'mesa', 'encargado', 'Productos', 'valor_total', 'estado']]
+    df_display = df_display.rename(columns={
+        'valor_total': 'Valor Total',
+        'estado': 'Estado de Pago'
+    })
+    
+    df_display['Valor Total'] = df_display['Valor Total'].apply(lambda x: f"${x:,.2f}")
+
+    st.markdown("---")
+    st.subheader('Tabla de Ventas Filtradas')
+    st.dataframe(df_display, use_container_width=True)
+
+    # --- Botón para calcular el valor total ---
+    st.markdown("---")
+    if st.button('💰 Calcular Valor Total de Ventas'):
+        total_ventas = df_filtrado['valor_total'].sum()
+        st.markdown(f"### Valor Total de Ventas: **${total_ventas:,.2f}**")
+
+
 def main():
     st.title('🍻 Sistema de Gestión para Bar')
     st.sidebar.title('Menú')
-    opcion = st.sidebar.radio('Navegación', ['Gestión de Inventario', 'Despacho de Pedidos', 'Facturación y Cuentas'])
+    opcion = st.sidebar.radio('Navegación', ['Gestión de Inventario', 'Despacho de Pedidos', 'Facturación y Cuentas', 'Gestión de Ventas'])
     
     if opcion == 'Gestión de Inventario':
         pagina_inventario()
@@ -520,6 +598,8 @@ def main():
         pagina_despacho()
     elif opcion == 'Facturación y Cuentas':
         pagina_facturacion()
+    elif opcion == 'Gestión de Ventas':
+        pagina_ventas()
 
 if __name__ == '__main__':
     main()
