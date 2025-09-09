@@ -8,8 +8,6 @@ from requests.exceptions import RequestException
 
 # Nombre del archivo para guardar la asistencia
 ASISTENCIA_FILE = 'asistencia.csv'
-# Nombre del archivo para guardar los registros de nuevos estudiantes
-REGISTROS_AGREGADOS_FILE = 'registros_agregados.csv'
 
 # URL del archivo Excel para descargar la lista de estudiantes
 EXCEL_URL = 'https://powerbi.yesbpo.com/public.php/dav/files/m5ytip22YkX5SKt/'
@@ -27,8 +25,11 @@ def obtener_estudiantes_de_excel():
         
         if 'Nombre' in df.columns and 'Apellido' in df.columns:
             df['Nombre Completo'] = df['Nombre'].fillna('') + ' ' + df['Apellido'].fillna('')
-            # Eliminar espacios en blanco duplicados si los hay
             df['Nombre Completo'] = df['Nombre Completo'].str.strip()
+            # Asegurar que las columnas Cedula y Telefono existan, aunque estén vacías
+            for col in ['Cedula', 'Telefono']:
+                if col not in df.columns:
+                    df[col] = ''
             return df[['Nombre Completo', 'Cedula', 'Telefono']]
         else:
             st.error("La hoja 'Lista' no contiene las columnas 'Nombre' y 'Apellido'.")
@@ -59,25 +60,25 @@ def guardar_asistencia(fecha_asistencia, registros):
 
 def agregar_estudiante(nombre, apellido, cedula, telefono):
     """
-    Agrega un nuevo estudiante al archivo local de registros.
+    Agrega un nuevo estudiante a los secretos de Streamlit.
     """
     nuevo_registro = {
-        'Nombre': [nombre],
-        'Apellido': [apellido],
-        'Cedula': [cedula],
-        'Telefono': [telefono]
+        'Nombre': nombre,
+        'Apellido': apellido,
+        'Cedula': cedula,
+        'Telefono': telefono
     }
-    df_nuevo = pd.DataFrame(nuevo_registro)
     
-    if os.path.exists(REGISTROS_AGREGADOS_FILE):
-        df_existente = pd.read_csv(REGISTROS_AGREGADOS_FILE)
-        df_final = pd.concat([df_existente, df_nuevo], ignore_index=True)
-    else:
-        df_final = df_nuevo
-        
-    df_final.to_csv(REGISTROS_AGREGADOS_FILE, index=False)
+    # Obtener el diccionario de registros, o crear uno si no existe
+    registros = st.secrets.get('registros_agregados', {})
+    
+    # Usar la cédula como clave para evitar duplicados
+    registros[cedula] = nuevo_registro
+    
+    # Guardar el diccionario actualizado en los secretos
+    st.secrets['registros_agregados'] = registros
+    
     st.success(f"¡Estudiante '{nombre} {apellido}' agregado exitosamente!")
-    # Cambiado de st.experimental_rerun() a st.rerun()
     st.rerun()
 
 def main():
@@ -108,6 +109,7 @@ def main():
             agregar_estudiante(nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono)
         else:
             st.error("Por favor, completa los campos de Nombre, Apellido y Cédula.")
+            st.stop()
 
     # ------------------
     # Registro de asistencia
@@ -119,20 +121,24 @@ def main():
     # Intenta obtener la lista de estudiantes
     with st.spinner('Cargando lista de estudiantes...'):
         df_excel = obtener_estudiantes_de_excel()
-        
-    df_registros = pd.DataFrame(columns=['Nombre', 'Apellido', 'Cedula', 'Telefono'])
-    if os.path.exists(REGISTROS_AGREGADOS_FILE):
-        df_registros = pd.read_csv(REGISTROS_AGREGADOS_FILE)
+    
+    # Cargar registros de st.secrets
+    registros_secrets = st.secrets.get('registros_agregados', {})
+    df_registros = pd.DataFrame.from_dict(registros_secrets, orient='index')
+    
+    # Si hay registros, crear la columna de Nombre Completo
+    if not df_registros.empty:
+        df_registros['Nombre Completo'] = df_registros['Nombre'].fillna('') + ' ' + df_registros['Apellido'].fillna('')
+        df_registros['Nombre Completo'] = df_registros['Nombre Completo'].str.strip()
     
     # Unir las listas y quitar duplicados
-    df_registros['Nombre Completo'] = df_registros['Nombre'].fillna('') + ' ' + df_registros['Apellido'].fillna('')
-    df_final = pd.concat([df_excel, df_registros[['Nombre Completo']]], ignore_index=True).drop_duplicates()
+    df_final = pd.concat([df_excel, df_registros[['Nombre Completo']]], ignore_index=True).drop_duplicates(subset=['Nombre Completo'])
     
     estudiantes = df_final['Nombre Completo'].tolist()
     
     if not estudiantes:
         st.warning("No se pudo cargar la lista de estudiantes. Revisa la conexión y el contenido de los archivos.")
-        return
+        st.stop()
         
     st.markdown("---")
     
