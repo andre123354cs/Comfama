@@ -15,7 +15,7 @@ EXCEL_URL = 'https://powerbi.yesbpo.com/public.php/dav/files/m5ytip22YkX5SKt/'
 def obtener_estudiantes_de_excel():
     """
     Descarga el archivo Excel de la URL,
-    lee la hoja 'Lista' y devuelve la columna de nombres.
+    lee la hoja 'Lista' y devuelve una lista con los nombres completos.
     """
     try:
         # Descarga el archivo directamente
@@ -25,11 +25,13 @@ def obtener_estudiantes_de_excel():
         # Lee el contenido del archivo en memoria
         df = pd.read_excel(io.BytesIO(response.content), sheet_name='Lista')
         
-        # Asume que la columna de nombres se llama 'NOMBRE'. Puedes cambiarla si es diferente.
-        if 'NOMBRE' in df.columns:
-            return df['NOMBRE'].tolist()
+        # Verifica que las columnas de nombres y apellidos existan
+        if 'Nombre' in df.columns and 'Apellido' in df.columns:
+            # Combina 'Nombre' y 'Apellido' para crear la lista de nombres completos
+            df['Nombre Completo'] = df['Nombre'] + ' ' + df['Apellido']
+            return df['Nombre Completo'].tolist()
         else:
-            st.error("La hoja 'Lista' no contiene la columna 'NOMBRE'.")
+            st.error("La hoja 'Lista' no contiene las columnas 'Nombre' y 'Apellido'.")
             return []
     
     except requests.exceptions.RequestException as e:
