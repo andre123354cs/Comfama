@@ -130,10 +130,12 @@ def main():
     if not df_registros.empty:
         df_registros['Nombre Completo'] = df_registros['Nombre'].fillna('') + ' ' + df_registros['Apellido'].fillna('')
         df_registros['Nombre Completo'] = df_registros['Nombre Completo'].str.strip()
-    
     # Unir las listas y quitar duplicados
-    df_final = pd.concat([df_excel, df_registros[['Nombre Completo']]], ignore_index=True).drop_duplicates(subset=['Nombre Completo'])
-    
+    if not df_registros.empty:
+        df_final = pd.concat([df_excel, df_registros[['Nombre Completo']]], ignore_index=True).drop_duplicates(subset=['Nombre Completo'])
+    else:
+        df_final = df_excel.copy()
+
     estudiantes = df_final['Nombre Completo'].tolist()
     
     if not estudiantes:
@@ -178,4 +180,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
