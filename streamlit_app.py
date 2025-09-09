@@ -562,7 +562,7 @@ def main():
     else:
         st.empty()
         st.markdown("<div class='centered-top-container'>", unsafe_allow_html=True)
-        st.header('Bienvenido a tu Bar 🍻')
+        st.title('Bienvenido a tu Bar 🍻')
         st.write('Por favor, ingresa el código para acceder al sistema.')
         
         with st.form(key='password_form'):
