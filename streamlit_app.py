@@ -77,7 +77,8 @@ def agregar_estudiante(nombre, apellido, cedula, telefono):
         
     df_final.to_csv(REGISTROS_AGREGADOS_FILE, index=False)
     st.success(f"¡Estudiante '{nombre} {apellido}' agregado exitosamente!")
-    st.experimental_rerun()
+    # Cambiado de st.experimental_rerun() a st.rerun()
+    st.rerun()
 
 def main():
     """Lógica principal de la aplicación Streamlit."""
