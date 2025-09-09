@@ -1,46 +1,26 @@
 import streamlit as st
 import pandas as pd
-import os
-from datetime import date
 import requests
 import io
-import sqlite3
+import json
+import firebase_admin
+from firebase_admin import credentials, firestore
+from google.cloud.firestore import Client
 from requests.exceptions import RequestException
 
-# Nombre del archivo para guardar la asistencia
-ASISTENCIA_FILE = 'asistencia.csv'
-# Nombre del archivo para la base de datos SQLite
-DATABASE_FILE = 'estudiantes.db'
+# Initialize Firebase (already done in the environment)
+try:
+    firebase_config = json.loads(st.secrets["FIREBASE_CONFIG"])
+    if not firebase_admin._apps:
+        cred = credentials.Certificate(firebase_config)
+        firebase_admin.initialize_app(cred)
+    db = firestore.client()
+except KeyError:
+    st.error("Error: FIREBASE_CONFIG not found in secrets. Please configure it in your Streamlit app's secrets.")
+    st.stop()
 
 # URL del archivo Excel para descargar la lista de estudiantes
 EXCEL_URL = 'https://powerbi.yesbpo.com/public.php/dav/files/m5ytip22YkX5SKt/'
-
-def crear_tabla_estudiantes():
-    """
-    Crea la tabla de estudiantes si no existe.
-    """
-    conn = sqlite3.connect(DATABASE_FILE)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS estudiantes_agregados (
-            id INTEGER PRIMARY KEY,
-            Nombre TEXT NOT NULL,
-            Apellido TEXT NOT NULL,
-            Cedula TEXT UNIQUE NOT NULL,
-            Telefono TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
-
-def obtener_estudiantes_agregados():
-    """
-    Obtiene los estudiantes de la base de datos SQLite.
-    """
-    conn = sqlite3.connect(DATABASE_FILE)
-    df = pd.read_sql_query("SELECT Nombre, Apellido, Cedula, Telefono FROM estudiantes_agregados", conn)
-    conn.close()
-    return df
 
 @st.cache_data(show_spinner=False)
 def obtener_estudiantes_de_excel():
@@ -71,41 +51,56 @@ def obtener_estudiantes_de_excel():
         st.error(f"Ocurrió un error al procesar el archivo Excel: {e}")
         return pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono'])
 
+def obtener_estudiantes_agregados():
+    """
+    Obtiene los estudiantes de la base de datos Firestore.
+    """
+    estudiantes_ref = db.collection('estudiantes_agregados')
+    docs = estudiantes_ref.stream()
+    
+    registros = []
+    for doc in docs:
+        registros.append(doc.to_dict())
+    
+    df = pd.DataFrame(registros)
+    if not df.empty:
+        df['Nombre Completo'] = df['Nombre'] + ' ' + df['Apellido']
+        df['Nombre Completo'] = df['Nombre Completo'].str.strip()
+    return df
+
 def guardar_asistencia(fecha_asistencia, registros):
     """
-    Guarda la asistencia en un archivo CSV.
-    Si el archivo existe, añade los nuevos registros.
+    Guarda la asistencia en la base de datos Firestore.
     """
-    df_nuevos = pd.DataFrame(registros)
-    
-    if os.path.exists(ASISTENCIA_FILE):
-        df_existente = pd.read_csv(ASISTENCIA_FILE)
-        df_limpio = df_existente[df_existente['Fecha'] != str(fecha_asistencia)]
-        df_final = pd.concat([df_limpio, df_nuevos], ignore_index=True)
-    else:
-        df_final = df_nuevos
-    
-    df_final.to_csv(ASISTENCIA_FILE, index=False)
+    asistencia_ref = db.collection('asistencia')
+    doc_id = str(fecha_asistencia)
+    asistencia_ref.document(doc_id).set({'registros': registros})
+    st.success(f'¡Asistencia guardada con éxito para el {fecha_asistencia}!')
 
 def agregar_estudiante(nombre, apellido, cedula, telefono):
     """
-    Agrega un nuevo estudiante a la base de datos SQLite.
+    Agrega un nuevo estudiante a la base de datos Firestore.
     """
-    try:
-        conn = sqlite3.connect(DATABASE_FILE)
-        c = conn.cursor()
-        c.execute("INSERT INTO estudiantes_agregados (Nombre, Apellido, Cedula, Telefono) VALUES (?, ?, ?, ?)",
-                  (nombre, apellido, cedula, telefono))
-        conn.commit()
-        conn.close()
-        st.success(f"¡Estudiante '{nombre} {apellido}' agregado exitosamente!")
-    except sqlite3.IntegrityError:
+    estudiantes_ref = db.collection('estudiantes_agregados')
+    
+    # Verifica si la cédula ya existe para evitar duplicados
+    doc_ref = estudiantes_ref.document(str(cedula))
+    doc = doc_ref.get()
+    
+    if doc.exists:
         st.error(f"Error: La cédula '{cedula}' ya existe en la base de datos.")
+    else:
+        estudiantes_ref.document(str(cedula)).set({
+            'Nombre': nombre,
+            'Apellido': apellido,
+            'Cedula': cedula,
+            'Telefono': telefono
+        })
+        st.success(f"¡Estudiante '{nombre} {apellido}' agregado exitosamente!")
     st.rerun()
 
 def main():
     """Lógica principal de la aplicación Streamlit."""
-    crear_tabla_estudiantes()
     st.set_page_config(layout="wide")
     st.title('📋 Sistema de Asistencia y Gestión de Estudiantes')
     
@@ -146,11 +141,6 @@ def main():
         df_excel = obtener_estudiantes_de_excel()
         df_registros = obtener_estudiantes_agregados()
     
-    # Si hay registros, crear la columna de Nombre Completo
-    if not df_registros.empty:
-        df_registros['Nombre Completo'] = df_registros['Nombre'].fillna('') + ' ' + df_registros['Apellido'].fillna('')
-        df_registros['Nombre Completo'] = df_registros['Nombre Completo'].str.strip()
-    
     # Unir las listas y quitar duplicados
     if not df_registros.empty:
         df_final = pd.concat([df_excel, df_registros[['Nombre Completo']]], ignore_index=True).drop_duplicates(subset=['Nombre Completo'])
@@ -187,17 +177,22 @@ def main():
             })
         
         guardar_asistencia(fecha_seleccionada, registros_a_guardar)
-        st.success(f'¡Asistencia guardada con éxito para el {fecha_seleccionada}!')
     
     st.markdown("---")
     
     st.subheader('📊 Historial de Asistencia')
-    if os.path.exists(ASISTENCIA_FILE):
-        df_asistencia = pd.read_csv(ASISTENCIA_FILE)
+    asistencia_docs = db.collection('asistencia').stream()
+    asistencia_historial = []
+    for doc in asistencia_docs:
+        doc_data = doc.to_dict()
+        for registro in doc_data.get('registros', []):
+            asistencia_historial.append(registro)
+    
+    if asistencia_historial:
+        df_asistencia = pd.DataFrame(asistencia_historial)
+        st.dataframe(df_asistencia, use_container_width=True)
     else:
-        df_asistencia = pd.DataFrame(columns=['Fecha', 'Nombre', 'Presente'])
-
-    st.dataframe(df_asistencia, use_container_width=True)
+        st.info("Aún no hay registros de asistencia.")
 
 if __name__ == '__main__':
     main()
