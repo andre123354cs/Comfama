@@ -207,7 +207,7 @@ def pagina_inventario():
         if nombre_referencia and id_referencia:
             guardar_producto(id_referencia, nombre_referencia)
             st.cache_data.clear()
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Por favor, llena ambos campos.")
 
@@ -232,7 +232,7 @@ def pagina_inventario():
         if submit_movement:
             guardar_movimiento_inventario(producto_movimiento, cantidad_movimiento, tipo_movimiento)
             st.cache_data.clear()
-            st.experimental_rerun()
+            st.rerun()
 
     # --- Ver Inventario actual ---
     st.markdown("---")
@@ -281,7 +281,7 @@ def pagina_despacho():
             items_list = [{'id_referencia': id_ref, 'cantidad': cantidad} for id_ref, cantidad in articulos_pedido.items()]
             guardar_pedido(mesa, encargado, items_list)
             st.cache_data.clear()
-            st.experimental_rerun()
+            st.rerun()
 
     # --- Historial de pedidos ---
     st.markdown("---")
