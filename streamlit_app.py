@@ -105,13 +105,13 @@ st.markdown("""
         background-color: #0A0A0E !important;
     }
 
-    .centered-container {
+    .centered-top-container {
         display: flex;
         flex-direction: column;
-        justify-content: center;
+        justify-content: flex-start;
         align-items: center;
-        height: 100vh;
-        text-align: center;
+        width: 100%;
+        padding-top: 20vh; /* Ajusta la distancia desde la parte superior */
     }
 </style>
 """, unsafe_allow_html=True)
@@ -561,7 +561,7 @@ def main():
             pagina_ventas()
     else:
         st.empty()
-        st.markdown("<div class='centered-container'>", unsafe_allow_html=True)
+        st.markdown("<div class='centered-top-container'>", unsafe_allow_html=True)
         st.header('Bienvenido a tu Bar 🍻')
         st.write('Por favor, ingresa el código para acceder al sistema.')
         
