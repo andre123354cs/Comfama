@@ -6,6 +6,7 @@ from firebase_admin import credentials, firestore
 from google.cloud.firestore import Client
 from datetime import datetime, date
 import random
+import io
 
 # --- Configuración de la página y Estilos Futuristas ---
 st.set_page_config(layout="wide")
@@ -188,6 +189,24 @@ def eliminar_todos_los_pedidos():
     docs = pedidos_ref.stream()
     for doc in docs:
         doc.reference.delete()
+
+def obtener_pedidos_para_descarga():
+    """Obtiene todos los pedidos y los prepara para la descarga."""
+    pedidos_data = []
+    pedidos_stream = db.collection('pedidos').stream()
+    for doc in pedidos_stream:
+        doc_dict = doc.to_dict()
+        doc_dict['id'] = doc.id
+        doc_dict['valor_total'] = doc_dict.get('valor_total', 0)
+        doc_dict['estado'] = doc_dict.get('estado', 'pendiente')
+        
+        # Formatear los ítems del pedido
+        items_str = ", ".join([f"{item.get('id_referencia', 'N/A')} x{item.get('cantidad', 0)}" for item in doc_dict.get('items', [])])
+        doc_dict['items'] = items_str
+
+        pedidos_data.append(doc_dict)
+    
+    return pedidos_data
 
 @st.cache_data
 def obtener_productos():
@@ -565,6 +584,21 @@ def pagina_administrador():
             st.error("Clave de administrador incorrecta.")
 
     if st.session_state.get('admin_acceso', False):
+        st.markdown("---")
+        st.subheader("Ventas")
+        pedidos_para_descarga = obtener_pedidos_para_descarga()
+        if pedidos_para_descarga:
+            df_descarga = pd.DataFrame(pedidos_para_descarga)
+            csv_data = df_descarga.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Descargar Ventas",
+                data=csv_data,
+                file_name=f"ventas_{date.today().isoformat()}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No hay ventas para descargar.")
+
         st.markdown("---")
         st.subheader("⚠️ Eliminación de Registros de Pedidos")
         st.warning("Esta acción eliminará todos los registros de la colección de 'pedidos'.")
