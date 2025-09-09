@@ -9,7 +9,108 @@ from google.cloud.firestore import Client
 from requests.exceptions import RequestException
 from datetime import date
 
-# Initialize Firebase (already done in the environment)
+# --- Configuración de la página y Estilos Futuristas ---
+st.set_page_config(layout="wide")
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+    
+    body {
+        font-family: 'Inter', sans-serif;
+        background-color: #0A0A0E;
+        color: #E0E0FF;
+    }
+    .st-emotion-cache-18ni7ap {
+        background-color: #0A0A0E !important;
+    }
+    .st-emotion-cache-1w0l7rx {
+        background-color: #0A0A0E !important;
+    }
+    .st-emotion-cache-16yaizd {
+        background-color: #0A0A0E !important;
+    }
+    .st-emotion-cache-1r4qj8m {
+        background-color: #0A0A0E !important;
+    }
+    .st-emotion-cache-1av54w0 {
+        background-color: #0A0A0E !important;
+    }
+    .st-emotion-cache-1a80y5d {
+        background-color: #0A0A0E !important;
+    }
+
+    .css-1jc7p55, .css-1dp5vir, .css-1gh1r0 {
+        color: #E0E0FF !important;
+    }
+    
+    h1, h2, h3, h4 {
+        color: #8C8CFF;
+        border-bottom: 2px solid #5A5A99;
+        padding-bottom: 10px;
+    }
+
+    .stButton>button {
+        background-color: #2E2E66;
+        color: #E0E0FF;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        transition: transform 0.2s, background-color 0.2s;
+    }
+    .stButton>button:hover {
+        background-color: #444488;
+        transform: translateY(-2px);
+    }
+    
+    .stTextInput>div>div>input, .st-emotion-cache-1v0u6pi {
+        background-color: #1A1A2E;
+        border: 1px solid #3A3A5A;
+        color: #E0E0FF;
+        border-radius: 8px;
+        padding: 10px;
+    }
+    
+    .stSelectbox>div>div, .stDateInput>div>div {
+        background-color: #1A1A2E !important;
+        border: 1px solid #3A3A5A !important;
+        color: #E0E0FF !important;
+        border-radius: 8px !important;
+    }
+    
+    .st-emotion-cache-1v0u6pi {
+        background-color: #1A1A2E !important;
+        border: 1px solid #3A3A5A !important;
+    }
+
+    .st-emotion-cache-1g6x8q2 {
+        background-color: #1A1A2E !important;
+    }
+    
+    .st-emotion-cache-1xw80s2 {
+        background-color: #0A0A0E !important;
+    }
+
+    .st-emotion-cache-1cpx684 {
+        background-color: #1A1A2E !important;
+    }
+    
+    .st-emotion-cache-1k1qf03 {
+        color: #E0E0FF !important;
+    }
+
+    .st-emotion-cache-1h61g10 {
+        background-color: #0A0A0E !important;
+    }
+
+    .st-emotion-cache-s2s9y8 {
+        background-color: #0A0A0E !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+# Initialize Firebase
 try:
     firebase_config_str = st.secrets["FIREBASE_CONFIG"]
     firebase_config = json.loads(firebase_config_str)
@@ -250,7 +351,6 @@ def pagina_gestion_estudiantes(df_final):
     st.dataframe(df_final, use_container_width=True)
 
 def main():
-    st.set_page_config(layout="wide")
     st.title('📋 Sistema de Asistencia y Gestión de Estudiantes')
     
     # Intenta obtener la lista de estudiantes
@@ -258,9 +358,10 @@ def main():
         df_excel = obtener_estudiantes_de_excel()
         df_registros = obtener_estudiantes_agregados()
     
-    # Unir las listas y quitar duplicados
-    df_registros = df_registros[['Nombre Completo', 'Cedula', 'Telefono']] if not df_registros.empty else pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono'])
-    df_final = pd.concat([df_excel, df_registros], ignore_index=True).drop_duplicates(subset=['Cedula'])
+    # Unir las listas y quitar duplicados. Los de la base de datos tienen prioridad.
+    df_registros_filtrados = df_registros[['Nombre Completo', 'Cedula', 'Telefono', 'id']] if 'id' in df_registros.columns else pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono', 'id'])
+    
+    df_final = pd.concat([df_excel, df_registros_filtrados], ignore_index=True).drop_duplicates(subset=['Cedula'], keep='last')
 
     st.sidebar.title('Menú')
     opcion = st.sidebar.radio('Navegación', ['Toma de Asistencia', 'Gestión de Estudiantes'])
