@@ -364,15 +364,17 @@ def pagina_gestion_estudiantes(df_final):
     st.markdown("---")
     st.subheader('✏️ Modificar o Eliminar Estudiante')
     if not df_final.empty:
-        df_final = df_final.set_index('Cedula')
-        estudiante_cedulas = df_final.index.tolist()
+        # Usamos una copia para la visualización y selección, manteniendo el df_final original
+        df_display = df_final.copy()
+        df_display = df_display.set_index('Cedula')
+        estudiante_cedulas = df_display.index.tolist()
         estudiante_seleccionado = st.selectbox(
             'Selecciona un estudiante por cédula:',
             options=estudiante_cedulas
         )
 
         if estudiante_seleccionado:
-            estudiante_data = df_final.loc[estudiante_seleccionado]
+            estudiante_data = df_display.loc[estudiante_seleccionado]
             
             with st.form(key='modificar_estudiante_form'):
                 col1, col2 = st.columns(2)
