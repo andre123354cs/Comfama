@@ -2,21 +2,51 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import date
+import requests
+import io
+import zipfile
 
 # Nombre del archivo para guardar la asistencia
 ASISTENCIA_FILE = 'asistencia.csv'
 
-# Lista de estudiantes del salón (puedes modificar esta lista)
-estudiantes = [
-    'Ana García',
-    'Juan Pérez',
-    'María López',
-    'Carlos Ruíz',
-    'Sofía Fernández',
-    'Daniel Gómez',
-    'Valentina Vargas',
-    'Manuel Castro'
-]
+# URL del archivo Excel para descargar la lista de estudiantes
+EXCEL_URL = 'https://powerbi.yesbpo.com/public.php/dav/files/m5ytip22YkX5SKt/?accept=zip'
+
+@st.cache_data
+def obtener_estudiantes_de_excel():
+    """
+    Descarga el archivo Excel de la URL, lo descomprime,
+    lee la hoja 'Lista' y devuelve la columna de nombres.
+    """
+    try:
+        # Descarga el archivo zip
+        response = requests.get(EXCEL_URL)
+        response.raise_for_status() # Lanza un error para códigos de estado HTTP incorrectos
+        
+        # Lee el contenido del zip en memoria
+        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+            # Busca el archivo .xlsx dentro del zip
+            excel_file_path = [f for f in z.namelist() if f.endswith('.xlsx') or f.endswith('.xls')]
+            if not excel_file_path:
+                st.error("No se encontró ningún archivo de Excel dentro del zip.")
+                return []
+            
+            # Abre el archivo de Excel y lo lee con pandas
+            with z.open(excel_file_path[0]) as f:
+                df = pd.read_excel(f, sheet_name='Lista')
+                # Asume que la columna de nombres se llama 'NOMBRE'. Puedes cambiarla si es diferente.
+                if 'NOMBRE' in df.columns:
+                    return df['NOMBRE'].tolist()
+                else:
+                    st.error("La hoja 'Lista' no contiene la columna 'NOMBRE'.")
+                    return []
+    
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error al descargar el archivo: {e}")
+        return []
+    except Exception as e:
+        st.error(f"Ocurrió un error al procesar el archivo: {e}")
+        return []
 
 def guardar_asistencia(fecha_asistencia, registros):
     """
@@ -25,14 +55,9 @@ def guardar_asistencia(fecha_asistencia, registros):
     """
     df_nuevos = pd.DataFrame(registros)
     
-    # Verifica si el archivo ya existe
     if os.path.exists(ASISTENCIA_FILE):
         df_existente = pd.read_csv(ASISTENCIA_FILE)
-        
-        # Elimina los registros antiguos para la fecha actual antes de guardar
         df_limpio = df_existente[df_existente['Fecha'] != str(fecha_asistencia)]
-        
-        # Combina los datos existentes con los nuevos
         df_final = pd.concat([df_limpio, df_nuevos], ignore_index=True)
     else:
         df_final = df_nuevos
@@ -43,7 +68,15 @@ def main():
     """Lógica principal de la aplicación Streamlit."""
     st.set_page_config(layout="wide")
     st.title('📋 Registro de Asistencia del Salón')
-    st.write('Selecciona la fecha y marca la asistencia de cada estudiante. Al finalizar, haz clic en "Guardar Asistencia".')
+    st.write('Selecciona la fecha y marca la asistencia de cada estudiante. La lista se carga automáticamente desde el archivo de Excel.')
+    
+    # Intenta obtener la lista de estudiantes del archivo Excel
+    estudiantes = obtener_estudiantes_de_excel()
+    if not estudiantes:
+        st.warning("No se pudo cargar la lista de estudiantes. Por favor, revisa la URL y el contenido del archivo de Excel.")
+        return
+        
+    st.markdown("---")
     
     # Selector de fecha
     fecha_seleccionada = st.date_input('Selecciona la fecha:', date.today())
@@ -70,18 +103,15 @@ def main():
                 'Presente': 'Sí' if presente else 'No'
             })
         
-        # Llamar a la función para guardar los datos
         guardar_asistencia(fecha_seleccionada, registros_a_guardar)
         st.success(f'¡Asistencia guardada con éxito para el {fecha_seleccionada}!')
     
     st.markdown("---")
     
     st.subheader('📊 Historial de Asistencia')
-    # Mostrar la tabla con la asistencia guardada
     if os.path.exists(ASISTENCIA_FILE):
         df_asistencia = pd.read_csv(ASISTENCIA_FILE)
     else:
-        # Si el archivo no existe, crea un DataFrame vacío para evitar errores
         df_asistencia = pd.DataFrame(columns=['Fecha', 'Nombre', 'Presente'])
 
     st.dataframe(df_asistencia, use_container_width=True)
