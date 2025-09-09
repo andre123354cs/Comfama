@@ -182,6 +182,13 @@ def marcar_pedidos_pagados(pedido_ids):
         batch.update(doc_ref, {'estado': 'pagado'})
     batch.commit()
 
+def eliminar_todos_los_pedidos():
+    """Elimina todos los documentos de la colección 'pedidos'."""
+    pedidos_ref = db.collection('pedidos')
+    docs = pedidos_ref.stream()
+    for doc in docs:
+        doc.reference.delete()
+
 @st.cache_data
 def obtener_productos():
     """Obtiene todas las referencias de productos de Firestore."""
@@ -541,6 +548,35 @@ def pagina_ventas():
         total_ventas = df_filtrado['valor_total'].sum()
         st.markdown(f"### Valor Total de Ventas: **${total_ventas:,.2f}**")
 
+def pagina_administrador():
+    st.header('🔐 Panel de Administración')
+    st.write('Esta sección es para el mantenimiento del sistema. Requiere una clave de acceso.')
+
+    with st.form(key='admin_form'):
+        clave_admin = st.text_input("Ingresa la clave de administrador:", type="password")
+        submit_admin = st.form_submit_button("Acceder")
+
+    if submit_admin:
+        if clave_admin == '1999':
+            st.session_state.admin_acceso = True
+            st.success("Acceso de administrador concedido.")
+            st.rerun()
+        else:
+            st.error("Clave de administrador incorrecta.")
+
+    if st.session_state.get('admin_acceso', False):
+        st.markdown("---")
+        st.subheader("⚠️ Eliminación de Registros de Pedidos")
+        st.warning("Esta acción eliminará todos los registros de la colección de 'pedidos'.")
+        st.write("Esta acción es irreversible.")
+
+        if st.button("🔴 Eliminar Todos los Pedidos", type="primary"):
+            eliminar_todos_los_pedidos()
+            st.success("🎉 Todos los registros de pedidos han sido eliminados exitosamente.")
+            st.session_state.admin_acceso = False
+            st.cache_data.clear()
+            st.rerun()
+
 # --- Lógica de la aplicación principal con autenticación ---
 def main():
     if 'authenticated' not in st.session_state:
@@ -549,7 +585,7 @@ def main():
     if st.session_state.authenticated:
         st.title('🍻 Sistema de Gestión para Bar')
         st.sidebar.title('Menú')
-        opcion = st.sidebar.radio('Navegación', ['Gestión de Inventario', 'Despacho de Pedidos', 'Facturación y Cuentas', 'Gestión de Ventas'])
+        opcion = st.sidebar.radio('Navegación', ['Gestión de Inventario', 'Despacho de Pedidos', 'Facturación y Cuentas', 'Gestión de Ventas', 'Administrador'])
         
         if opcion == 'Gestión de Inventario':
             pagina_inventario()
@@ -559,6 +595,8 @@ def main():
             pagina_facturacion()
         elif opcion == 'Gestión de Ventas':
             pagina_ventas()
+        elif opcion == 'Administrador':
+            pagina_administrador()
     else:
         st.empty()
         st.markdown("<div class='centered-top-container'>", unsafe_allow_html=True)
