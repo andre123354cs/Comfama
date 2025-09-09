@@ -122,10 +122,10 @@ except ValueError:
     st.stop()
 
 
-def guardar_producto(id_referencia, nombre_referencia):
+def guardar_producto(id_referencia, nombre_referencia, precio):
     """Guarda una nueva referencia de producto en Firestore."""
     doc_ref = db.collection('productos').document(id_referencia)
-    doc_ref.set({'nombre': nombre_referencia})
+    doc_ref.set({'nombre': nombre_referencia, 'precio': precio})
 
 def guardar_movimiento_inventario(id_referencia, cantidad, tipo_movimiento):
     """Guarda un movimiento de inventario (entrada o salida) en Firestore."""
@@ -136,14 +136,16 @@ def guardar_movimiento_inventario(id_referencia, cantidad, tipo_movimiento):
         'fecha': datetime.now().isoformat()
     })
 
-def guardar_pedido(mesa, encargado, items):
+def guardar_pedido(mesa, encargado, items, valor_total):
     """Guarda un pedido en Firestore y actualiza el inventario."""
     try:
         doc_ref = db.collection('pedidos').add({
             'mesa': mesa,
             'encargado': encargado,
             'fecha': datetime.now().isoformat(),
-            'items': items
+            'items': items,
+            'valor_total': valor_total,
+            'estado': 'pendiente'  # Nuevo campo de estado
         })
         # Actualizar inventario (salida)
         for item in items:
@@ -152,11 +154,19 @@ def guardar_pedido(mesa, encargado, items):
     except Exception as e:
         st.error(f"Error al guardar el pedido: {e}")
 
+def marcar_pedidos_pagados(pedido_ids):
+    """Actualiza el estado de varios pedidos a 'pagado'."""
+    batch = db.batch()
+    for pedido_id in pedido_ids:
+        doc_ref = db.collection('pedidos').document(pedido_id)
+        batch.update(doc_ref, {'estado': 'pagado'})
+    batch.commit()
+
 @st.cache_data
 def obtener_productos():
     """Obtiene todas las referencias de productos de Firestore."""
     productos = db.collection('productos').stream()
-    return {doc.id: doc.to_dict()['nombre'] for doc in productos}
+    return {doc.id: {'nombre': doc.to_dict()['nombre'], 'precio': doc.to_dict().get('precio', 0)} for doc in productos}
 
 @st.cache_data
 def obtener_movimientos_inventario():
@@ -168,7 +178,7 @@ def obtener_movimientos_inventario():
 def obtener_pedidos():
     """Obtiene todos los pedidos de Firestore."""
     pedidos = db.collection('pedidos').stream()
-    return [doc.to_dict() for doc in pedidos]
+    return [{**doc.to_dict(), 'id': doc.id} for doc in pedidos]
 
 def obtener_inventario_actual(productos_map, movimientos_inventario):
     """Calcula el inventario actual a partir de los movimientos."""
@@ -182,8 +192,9 @@ def obtener_inventario_actual(productos_map, movimientos_inventario):
             inventario_actual[id_ref] -= cantidad
     
     df_inventario = pd.DataFrame(list(inventario_actual.items()), columns=['ID Referencia', 'Cantidad'])
-    df_inventario['Nombre Referencia'] = df_inventario['ID Referencia'].map(productos_map)
-    return df_inventario[['Nombre Referencia', 'ID Referencia', 'Cantidad']]
+    df_inventario['Nombre Referencia'] = df_inventario['ID Referencia'].map({k: v['nombre'] for k, v in productos_map.items()})
+    df_inventario['Precio Unitario'] = df_inventario['ID Referencia'].map({k: v['precio'] for k, v in productos_map.items()})
+    return df_inventario[['Nombre Referencia', 'ID Referencia', 'Cantidad', 'Precio Unitario']]
 
 def pagina_inventario():
     st.header('📦 Gestión de Inventario')
@@ -195,21 +206,23 @@ def pagina_inventario():
     st.markdown("---")
     st.subheader('➕ Agregar Nueva Referencia')
     with st.form(key='add_product_form'):
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             nombre_referencia = st.text_input("Nombre de la Referencia (ej. 'Aguila')").strip()
         with col2:
             id_referencia = st.text_input("ID de Referencia (ej. 'aguila001')").strip()
+        with col3:
+            precio = st.number_input("Precio por Unidad", min_value=0.0, step=0.01)
         
         submit_product = st.form_submit_button('Guardar Referencia')
     
     if submit_product:
-        if nombre_referencia and id_referencia:
-            guardar_producto(id_referencia, nombre_referencia)
+        if nombre_referencia and id_referencia and precio > 0:
+            guardar_producto(id_referencia, nombre_referencia, precio)
             st.cache_data.clear()
             st.rerun()
         else:
-            st.error("Por favor, llena ambos campos.")
+            st.error("Por favor, llena todos los campos y asegúrate de que el precio sea mayor que 0.")
 
     # --- Registrar movimiento de inventario ---
     st.markdown("---")
@@ -219,7 +232,7 @@ def pagina_inventario():
         st.warning("No hay referencias de productos. Por favor, agrega una primero.")
     else:
         with st.form(key='stock_movement_form'):
-            producto_movimiento = st.selectbox("Selecciona la Referencia", options=sorted(productos_map.keys()), format_func=lambda x: f"{productos_map[x]} ({x})")
+            producto_movimiento = st.selectbox("Selecciona la Referencia", options=sorted(productos_map.keys()), format_func=lambda x: f"{productos_map[x]['nombre']} ({x})")
             
             col_mov1, col_mov2 = st.columns(2)
             with col_mov1:
@@ -267,19 +280,24 @@ def pagina_despacho():
 
         st.markdown("#### Artículos del Pedido")
         articulos_pedido = {}
-        for id_ref, nombre_ref in productos_map.items():
-            cantidad = st.number_input(f"{nombre_ref}", min_value=0, value=0, key=f"item_{id_ref}")
+        total_pedido = 0.0
+        
+        for id_ref, data in productos_map.items():
+            cantidad = st.number_input(f"{data['nombre']} (Precio: ${data['precio']:,.2f})", min_value=0, value=0, key=f"item_{id_ref}")
             if cantidad > 0:
-                articulos_pedido[id_ref] = cantidad
+                articulos_pedido[id_ref] = {'cantidad': cantidad, 'precio_unitario': data['precio']}
+                total_pedido += cantidad * data['precio']
 
+        st.markdown(f"**Valor Total del Pedido:** **${total_pedido:,.2f}**")
+        
         submit_order = st.form_submit_button('Guardar Pedido')
     
     if submit_order:
         if not mesa or not encargado or not articulos_pedido:
             st.error("Por favor, completa la mesa, el encargado y agrega al menos un artículo.")
         else:
-            items_list = [{'id_referencia': id_ref, 'cantidad': cantidad} for id_ref, cantidad in articulos_pedido.items()]
-            guardar_pedido(mesa, encargado, items_list)
+            items_list = [{'id_referencia': id_ref, 'cantidad': data['cantidad']} for id_ref, data in articulos_pedido.items()]
+            guardar_pedido(mesa, encargado, items_list, total_pedido)
             st.cache_data.clear()
             st.rerun()
 
@@ -295,10 +313,12 @@ def pagina_despacho():
         def format_items(items_list):
             if not isinstance(items_list, list):
                 return ""
-            return ", ".join([f"{productos_map.get(item['id_referencia'], item['id_referencia'])} x{item['cantidad']}" for item in items_list])
+            return ", ".join([f"{productos_map.get(item['id_referencia'], {'nombre': item['id_referencia']})['nombre']} x{item['cantidad']}" for item in items_list])
 
         df_pedidos['Productos'] = df_pedidos['items'].apply(format_items)
-        df_display = df_pedidos[['fecha', 'mesa', 'encargado', 'Productos']]
+        df_display = df_pedidos[['fecha', 'mesa', 'encargado', 'Productos', 'valor_total']]
+        df_display = df_display.rename(columns={'valor_total': 'Valor Total'})
+        df_display['Valor Total'] = df_display['Valor Total'].apply(lambda x: f"${x:,.2f}")
 
         opcion_agrupar = st.selectbox(
             "Agrupar por:",
@@ -314,15 +334,81 @@ def pagina_despacho():
     else:
         st.info("Aún no hay pedidos registrados.")
 
+def pagina_facturacion():
+    st.header('🧾 Facturación y Cuentas')
+    st.write('Gestiona los cobros, consolida facturas y marca pedidos como pagados.')
+
+    productos_map = obtener_productos()
+    pedidos = obtener_pedidos()
+    
+    if not pedidos:
+        st.info("No hay pedidos registrados para facturar.")
+        return
+
+    df_pedidos = pd.DataFrame(pedidos)
+    df_pendientes = df_pedidos[df_pedidos['estado'] == 'pendiente'].copy()
+
+    if df_pendientes.empty:
+        st.success("🎉 Todas las cuentas están al día. ¡No hay pedidos pendientes!")
+        return
+        
+    # Procesar los items para una mejor visualización
+    def format_items(items_list):
+        if not isinstance(items_list, list):
+            return ""
+        return ", ".join([f"{productos_map.get(item['id_referencia'], {'nombre': item['id_referencia']})['nombre']} x{item['cantidad']}" for item in items_list])
+
+    df_pendientes['Productos'] = df_pendientes['items'].apply(format_items)
+    
+    opcion_agrupar = st.selectbox(
+        "Agrupar y seleccionar cuentas por:",
+        options=['Mesa', 'Encargado']
+    )
+
+    if opcion_agrupar == 'Mesa':
+        opciones_seleccion = sorted(df_pendientes['mesa'].unique())
+        seleccionados = st.multiselect("Selecciona las mesas a facturar:", options=opciones_seleccion)
+        pedidos_seleccionados = df_pendientes[df_pendientes['mesa'].isin(seleccionados)]
+    else: # Por Encargado
+        opciones_seleccion = sorted(df_pendientes['encargado'].unique())
+        seleccionados = st.multiselect("Selecciona los encargados a facturar:", options=opciones_seleccion)
+        pedidos_seleccionados = df_pendientes[df_pendientes['encargado'].isin(seleccionados)]
+
+    st.markdown("---")
+    st.subheader('Factura Consolidada')
+
+    if not pedidos_seleccionados.empty:
+        total_factura = pedidos_seleccionados['valor_total'].sum()
+        
+        st.markdown(f"### Valor Total a Cobrar: **${total_factura:,.2f}**")
+
+        st.write("#### Detalles del pedido")
+        df_detalles = pedidos_seleccionados[['fecha', 'mesa', 'encargado', 'Productos', 'valor_total']]
+        df_detalles = df_detalles.rename(columns={'valor_total': 'Valor Total'})
+        df_detalles['Valor Total'] = df_detalles['Valor Total'].apply(lambda x: f"${x:,.2f}")
+        st.dataframe(df_detalles, use_container_width=True)
+
+        if st.button('💰 Marcar Cuentas como Pagadas'):
+            pedido_ids_a_pagar = pedidos_seleccionados['id'].tolist()
+            marcar_pedidos_pagados(pedido_ids_a_pagar)
+            st.success("Las cuentas han sido marcadas como pagadas.")
+            st.cache_data.clear()
+            st.rerun()
+
+    else:
+        st.info("Selecciona una o más opciones para generar la factura.")
+
 def main():
     st.title('🍻 Sistema de Gestión para Bar')
     st.sidebar.title('Menú')
-    opcion = st.sidebar.radio('Navegación', ['Gestión de Inventario', 'Despacho de Pedidos'])
+    opcion = st.sidebar.radio('Navegación', ['Gestión de Inventario', 'Despacho de Pedidos', 'Facturación y Cuentas'])
     
     if opcion == 'Gestión de Inventario':
         pagina_inventario()
     elif opcion == 'Despacho de Pedidos':
         pagina_despacho()
+    elif opcion == 'Facturación y Cuentas':
+        pagina_facturacion()
 
 if __name__ == '__main__':
     main()
