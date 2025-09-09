@@ -1,13 +1,10 @@
 import streamlit as st
 import pandas as pd
-import requests
-import io
 import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore import Client
-from requests.exceptions import RequestException
-from datetime import date
+from datetime import datetime
 
 # --- Configuración de la página y Estilos Futuristas ---
 st.set_page_config(layout="wide")
@@ -109,12 +106,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
-# Initialize Firebase
+# --- Funciones de Firestore ---
 try:
     firebase_config_str = st.secrets["FIREBASE_CONFIG"]
     firebase_config = json.loads(firebase_config_str)
-    
     if not firebase_admin._apps:
         cred = credentials.Certificate(firebase_config)
         firebase_admin.initialize_app(cred)
@@ -123,369 +118,211 @@ except KeyError:
     st.error("Error: FIREBASE_CONFIG not found in secrets. Please configure it in your Streamlit app's secrets.")
     st.stop()
 except ValueError:
-    st.error("Error: El formato de FIREBASE_CONFIG en secrets no es un JSON válido. Revisa que las credenciales estén copiadas correctamente.")
+    st.error("Error: The format of FIREBASE_CONFIG in secrets is not a valid JSON. Please check that the credentials have been copied correctly.")
     st.stop()
 
 
-# URL del archivo Excel para descargar la lista de estudiantes
-EXCEL_URL = 'https://powerbi.yesbpo.com/public.php/dav/files/m5ytip22YkX5SKt/'
+def guardar_producto(id_referencia, nombre_referencia):
+    """Guarda una nueva referencia de producto en Firestore."""
+    doc_ref = db.collection('productos').document(id_referencia)
+    doc_ref.set({'nombre': nombre_referencia})
 
-@st.cache_data(show_spinner=False)
-def obtener_estudiantes_de_excel():
-    """
-    Descarga el archivo Excel de la URL y
-    lee la hoja 'Lista' para obtener los nombres completos.
-    """
-    try:
-        response = requests.get(EXCEL_URL)
-        response.raise_for_status() 
-        df = pd.read_excel(io.BytesIO(response.content), sheet_name='Lista')
-        
-        if 'Nombre' in df.columns and 'Apellido' in df.columns:
-            df['Nombre Completo'] = df['Nombre'].fillna('') + ' ' + df['Apellido'].fillna('')
-            df['Nombre Completo'] = df['Nombre Completo'].str.strip()
-            df['Cedula'] = df['Cedula'].astype(str)
-            df['Telefono'] = df['Telefono'].astype(str)
-            
-            return df[['Nombre Completo', 'Cedula', 'Telefono']]
-        else:
-            st.error("La hoja 'Lista' no contiene las columnas 'Nombre' y 'Apellido'.")
-            return pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono'])
-    
-    except RequestException as e:
-        st.error(f"Error al descargar el archivo de Excel: {e}")
-        return pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono'])
-    except Exception as e:
-        st.error(f"Ocurrió un error al procesar el archivo Excel: {e}")
-        return pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono'])
-
-def obtener_estudiantes_agregados():
-    """
-    Obtiene los estudiantes de la base de datos Firestore.
-    """
-    estudiantes_ref = db.collection('estudiantes_agregados')
-    docs = estudiantes_ref.stream()
-    
-    registros = []
-    for doc in docs:
-        data = doc.to_dict()
-        data['id'] = doc.id
-        registros.append(data)
-    
-    df = pd.DataFrame(registros)
-    if not df.empty:
-        df['Nombre Completo'] = df['Nombre'] + ' ' + df['Apellido']
-        df['Nombre Completo'] = df['Nombre Completo'].str.strip()
-    return df
-
-def guardar_asistencia(fecha_asistencia, registros):
-    """
-    Guarda la asistencia en la base de datos Firestore.
-    """
-    asistencia_ref = db.collection('asistencia')
-    doc_id = str(fecha_asistencia)
-    asistencia_ref.document(doc_id).set({'registros': registros})
-    st.success(f'¡Asistencia guardada con éxito para el {fecha_asistencia}!')
-
-def agregar_estudiante(nombre, apellido, cedula, telefono):
-    """
-    Agrega un nuevo estudiante a la base de datos Firestore.
-    """
-    estudiantes_ref = db.collection('estudiantes_agregados')
-    
-    # Generar el ID personalizado
-    custom_id = f"{nombre[0].upper()}{str(cedula)[-3:]}"
-
-    doc_ref = estudiantes_ref.document(str(cedula))
-    doc = doc_ref.get()
-    
-    if doc.exists:
-        st.error(f"Error: La cédula '{cedula}' ya existe en la base de datos.")
-    else:
-        estudiantes_ref.document(str(cedula)).set({
-            'Nombre': nombre,
-            'Apellido': apellido,
-            'Cedula': cedula,
-            'Telefono': telefono,
-            'ID Personalizado': custom_id
-        })
-        st.success(f"¡Estudiante '{nombre} {apellido}' agregado exitosamente con ID: {custom_id}!")
-    st.rerun()
-
-def modificar_estudiante(cedula_anterior, nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono):
-    """
-    Modifica un estudiante existente en la base de datos Firestore.
-    """
-    estudiantes_ref = db.collection('estudiantes_agregados')
-    doc_ref_anterior = estudiantes_ref.document(str(cedula_anterior))
-    doc_anterior = doc_ref_anterior.get()
-
-    if not doc_anterior.exists:
-        # Si el estudiante no existe en Firestore (viene del Excel), lo agregamos primero
-        st.info("El estudiante no se encontró en la base de datos. Agregándolo...")
-        agregar_estudiante(nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono)
-        return
-
-    # Si la cédula cambió, eliminamos el registro anterior y creamos uno nuevo
-    if cedula_anterior != nueva_cedula:
-        doc_ref_anterior.delete()
-        agregar_estudiante(nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono)
-        st.success(f"¡Estudiante con cédula '{cedula_anterior}' modificado a '{nueva_cedula}' exitosamente!")
-    else:
-        # Si la cédula es la misma, solo actualizamos los campos
-        custom_id = f"{nuevo_nombre[0].upper()}{str(nueva_cedula)[-3:]}"
-        doc_ref_anterior.update({
-            'Nombre': nuevo_nombre,
-            'Apellido': nuevo_apellido,
-            'Telefono': nuevo_telefono,
-            'ID Personalizado': custom_id
-        })
-        st.success(f"¡Estudiante con cédula '{cedula_anterior}' modificado exitosamente!")
-    st.rerun()
-
-def eliminar_estudiante(cedula):
-    """
-    Elimina un estudiante de la base de datos Firestore.
-    """
-    estudiantes_ref = db.collection('estudiantes_agregados').document(str(cedula))
-    estudiantes_ref.delete()
-    st.success(f"¡Estudiante con cédula '{cedula}' eliminado exitosamente!")
-    st.rerun()
-
-def eliminar_todos_estudiantes():
-    """
-    Elimina todos los estudiantes de la colección 'estudiantes_agregados'.
-    """
-    estudiantes_ref = db.collection('estudiantes_agregados')
-    docs = estudiantes_ref.stream()
-    for doc in docs:
-        doc.reference.delete()
-    st.success("¡Todos los estudiantes de la base de datos han sido eliminados!")
-    st.rerun()
-
-def guardar_grupo(nombre_grupo, estudiantes_cedulas):
-    """
-    Guarda un grupo de estudiantes en la base de datos Firestore.
-    """
-    grupos_ref = db.collection('grupos')
-    grupos_ref.document(nombre_grupo).set({
-        'estudiantes': estudiantes_cedulas
+def guardar_movimiento_inventario(id_referencia, cantidad, tipo_movimiento):
+    """Guarda un movimiento de inventario (entrada o salida) en Firestore."""
+    db.collection('inventario_movimientos').add({
+        'id_referencia': id_referencia,
+        'cantidad': cantidad,
+        'tipo_movimiento': tipo_movimiento,
+        'fecha': datetime.now().isoformat()
     })
-    st.success(f"Grupo '{nombre_grupo}' guardado exitosamente.")
-    st.rerun()
 
-def eliminar_grupo(nombre_grupo):
-    """
-    Elimina un grupo de la base de datos Firestore.
-    """
-    grupos_ref = db.collection('grupos').document(nombre_grupo)
-    grupos_ref.delete()
-    st.success(f"Grupo '{nombre_grupo}' eliminado exitosamente.")
-    st.rerun()
+def guardar_pedido(mesa, encargado, items):
+    """Guarda un pedido en Firestore y actualiza el inventario."""
+    try:
+        doc_ref = db.collection('pedidos').add({
+            'mesa': mesa,
+            'encargado': encargado,
+            'fecha': datetime.now().isoformat(),
+            'items': items
+        })
+        # Actualizar inventario (salida)
+        for item in items:
+            guardar_movimiento_inventario(item['id_referencia'], item['cantidad'], 'salida')
+        st.success("Pedido guardado exitosamente y el inventario ha sido actualizado.")
+    except Exception as e:
+        st.error(f"Error al guardar el pedido: {e}")
 
+@st.cache_data
+def obtener_productos():
+    """Obtiene todas las referencias de productos de Firestore."""
+    productos = db.collection('productos').stream()
+    return {doc.id: doc.to_dict()['nombre'] for doc in productos}
 
-def pagina_toma_asistencia(df_final):
-    st.header('📝 Toma de Asistencia')
-    st.write('Selecciona la fecha y marca la asistencia de cada estudiante.')
-    
-    estudiantes = df_final['Nombre Completo'].tolist()
-    
-    if not estudiantes:
-        st.warning("No se pudo cargar la lista de estudiantes. Revisa la conexión y el contenido de los archivos.")
-        st.stop()
-        
-    st.markdown("---")
-    
-    fecha_seleccionada = st.date_input('Selecciona la fecha:', date.today())
-    
-    st.markdown("---")
-    
-    asistencia_del_dia = {}
-    st.subheader('Lista de Estudiantes')
-    
-    for estudiante in estudiantes:
-        asistencia_del_dia[estudiante] = st.checkbox(estudiante)
-        
-    st.markdown("---")
-    
-    if st.button('✅ Guardar Asistencia'):
-        registros_a_guardar = []
-        for nombre, presente in asistencia_del_dia.items():
-            registros_a_guardar.append({
-                'Fecha': str(fecha_seleccionada),
-                'Nombre': nombre,
-                'Presente': 'Sí' if presente else 'No'
-            })
-        
-        guardar_asistencia(fecha_seleccionada, registros_a_guardar)
-    
-    st.markdown("---")
-    
-    st.subheader('📊 Historial de Asistencia')
-    asistencia_docs = db.collection('asistencia').stream()
-    asistencia_historial = []
-    for doc in asistencia_docs:
-        doc_data = doc.to_dict()
-        for registro in doc_data.get('registros', []):
-            asistencia_historial.append(registro)
-    
-    if asistencia_historial:
-        df_asistencia = pd.DataFrame(asistencia_historial)
-        st.dataframe(df_asistencia, use_container_width=True)
-    else:
-        st.info("Aún no hay registros de asistencia.")
+@st.cache_data
+def obtener_movimientos_inventario():
+    """Obtiene todos los movimientos de inventario de Firestore."""
+    movimientos = db.collection('inventario_movimientos').stream()
+    return [doc.to_dict() for doc in movimientos]
 
-def pagina_gestion_estudiantes(df_final):
-    st.header('🛠️ Gestión de Estudiantes')
-    st.write('Aquí puedes ver, agregar, modificar y eliminar registros de estudiantes.')
+@st.cache_data
+def obtener_pedidos():
+    """Obtiene todos los pedidos de Firestore."""
+    pedidos = db.collection('pedidos').stream()
+    return [doc.to_dict() for doc in pedidos]
+
+def obtener_inventario_actual(productos_map, movimientos_inventario):
+    """Calcula el inventario actual a partir de los movimientos."""
+    inventario_actual = {id_ref: 0 for id_ref in productos_map.keys()}
+    for mov in movimientos_inventario:
+        id_ref = mov['id_referencia']
+        cantidad = mov['cantidad']
+        if mov['tipo_movimiento'] == 'entrada':
+            inventario_actual[id_ref] += cantidad
+        elif mov['tipo_movimiento'] == 'salida':
+            inventario_actual[id_ref] -= cantidad
     
-    # --- Agregar estudiante ---
+    df_inventario = pd.DataFrame(list(inventario_actual.items()), columns=['ID Referencia', 'Cantidad'])
+    df_inventario['Nombre Referencia'] = df_inventario['ID Referencia'].map(productos_map)
+    return df_inventario[['Nombre Referencia', 'ID Referencia', 'Cantidad']]
+
+def pagina_inventario():
+    st.header('📦 Gestión de Inventario')
+    st.write('Agrega nuevas referencias de productos o registra movimientos de stock.')
+
+    productos_map = obtener_productos()
+    
+    # --- Agregar nueva referencia de producto ---
     st.markdown("---")
-    st.subheader('➕ Agregar Nuevo Estudiante')
-    with st.form(key='agregar_estudiante_form'):
+    st.subheader('➕ Agregar Nueva Referencia')
+    with st.form(key='add_product_form'):
         col1, col2 = st.columns(2)
         with col1:
-            nuevo_nombre = st.text_input('Nombre', key='nuevo_nombre')
-            nueva_cedula = st.text_input('Cédula', key='nueva_cedula')
+            nombre_referencia = st.text_input("Nombre de la Referencia (ej. 'Aguila')").strip()
         with col2:
-            nuevo_apellido = st.text_input('Apellido', key='nuevo_apellido')
-            nuevo_telefono = st.text_input('Teléfono', key='nuevo_telefono')
-            
-        submit_button = st.form_submit_button(label='Guardar Estudiante')
+            id_referencia = st.text_input("ID de Referencia (ej. 'aguila001')").strip()
         
-    if submit_button:
-        if nuevo_nombre and nuevo_apellido and nueva_cedula:
-            agregar_estudiante(nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono)
-        else:
-            st.error("Por favor, completa los campos de Nombre, Apellido y Cédula.")
-            st.stop()
-
-    # --- Modificar/Eliminar estudiante ---
-    st.markdown("---")
-    st.subheader('✏️ Modificar o Eliminar Estudiante')
-    if not df_final.empty:
-        # Usamos una copia para la visualización y selección, manteniendo el df_final original
-        df_display = df_final.copy()
-        df_display = df_display.set_index('Cedula')
-        estudiante_cedulas = df_display.index.tolist()
-        estudiante_seleccionado = st.selectbox(
-            'Selecciona un estudiante por cédula:',
-            options=estudiante_cedulas
-        )
-
-        if estudiante_seleccionado:
-            estudiante_data = df_display.loc[estudiante_seleccionado]
-            
-            with st.form(key='modificar_estudiante_form'):
-                col1, col2 = st.columns(2)
-                with col1:
-                    mod_nombre = st.text_input('Nombre', value=estudiante_data.get('Nombre', ''), key='mod_nombre')
-                    mod_cedula = st.text_input('Cédula', value=estudiante_data.name, key='mod_cedula')
-                with col2:
-                    mod_apellido = st.text_input('Apellido', value=estudiante_data.get('Apellido', ''), key='mod_apellido')
-                    mod_telefono = st.text_input('Teléfono', value=estudiante_data.get('Telefono', ''), key='mod_telefono')
-
-                col_mod, col_del = st.columns([1, 1])
-                with col_mod:
-                    modificar_button = st.form_submit_button('Modificar Estudiante')
-                with col_del:
-                    eliminar_button = st.form_submit_button('Eliminar Estudiante')
-
-            if modificar_button:
-                modificar_estudiante(estudiante_data.name, mod_nombre, mod_apellido, mod_cedula, mod_telefono)
-            
-            if eliminar_button:
-                st.warning("Estás a punto de eliminar este estudiante. Esta acción es irreversible.")
-                if st.button('Confirmar Eliminación'):
-                    eliminar_estudiante(estudiante_data.name)
+        submit_product = st.form_submit_button('Guardar Referencia')
     
-    # --- Eliminar todos los estudiantes ---
-    st.markdown("---")
-    st.subheader('🔥 Eliminar Todos los Estudiantes de la Base de Datos')
-    st.warning("⚠️ Esta acción es irreversible y eliminará todos los estudiantes agregados manualmente. Los estudiantes del Excel permanecerán.")
-    if st.button('Confirmar y Eliminar Todos'):
-        eliminar_todos_estudiantes()
-
-    # --- Gestión de Grupos ---
-    st.markdown("---")
-    st.header('👥 Gestión de Grupos')
-    st.write('Crea, modifica y elimina grupos de estudiantes. Un estudiante puede pertenecer a varios grupos.')
-
-    st.subheader('➕ Agregar o Modificar Grupo')
-    with st.form(key='group_form'):
-        nombre_grupo = st.text_input("Nombre del Grupo")
-        all_students = df_final['Nombre Completo'].tolist()
-        estudiantes_seleccionados = st.multiselect("Selecciona los estudiantes para este grupo", options=all_students)
-
-        guardar_grupo_button = st.form_submit_button("Guardar Grupo")
-
-    if guardar_grupo_button:
-        if nombre_grupo and estudiantes_seleccionados:
-            cedulas_seleccionadas = df_final[df_final['Nombre Completo'].isin(estudiantes_seleccionados)]['Cedula'].tolist()
-            guardar_grupo(nombre_grupo, cedulas_seleccionadas)
+    if submit_product:
+        if nombre_referencia and id_referencia:
+            guardar_producto(id_referencia, nombre_referencia)
+            st.cache_data.clear()
+            st.experimental_rerun()
         else:
-            st.error("Por favor, ingresa un nombre para el grupo y selecciona al menos un estudiante.")
-            
+            st.error("Por favor, llena ambos campos.")
+
+    # --- Registrar movimiento de inventario ---
     st.markdown("---")
-    st.subheader('👁️ Grupos Existentes')
-    grupos_ref = db.collection('grupos')
-    grupos_docs = grupos_ref.stream()
+    st.subheader('✍️ Registrar Movimiento de Inventario')
     
-    grupos_data = {doc.id: doc.to_dict()['estudiantes'] for doc in grupos_docs}
-    if grupos_data:
-        for group_name, estudiantes_cedulas in grupos_data.items():
-            st.write(f"**Grupo:** {group_name}")
-            nombres_en_grupo = df_final[df_final['Cedula'].isin(estudiantes_cedulas)]['Nombre Completo'].tolist()
-            st.markdown(f"**Estudiantes:** {', '.join(nombres_en_grupo)}")
-            
-            if st.button(f"Eliminar Grupo {group_name}"):
-                eliminar_grupo(group_name)
-            st.markdown("---")
+    if not productos_map:
+        st.warning("No hay referencias de productos. Por favor, agrega una primero.")
     else:
-        st.info("Aún no hay grupos creados.")
+        with st.form(key='stock_movement_form'):
+            producto_movimiento = st.selectbox("Selecciona la Referencia", options=sorted(productos_map.keys()), format_func=lambda x: f"{productos_map[x]} ({x})")
+            
+            col_mov1, col_mov2 = st.columns(2)
+            with col_mov1:
+                cantidad_movimiento = st.number_input("Cantidad", min_value=1, value=1)
+            with col_mov2:
+                tipo_movimiento = st.selectbox("Tipo de Movimiento", options=['entrada', 'salida'])
+            
+            submit_movement = st.form_submit_button('Registrar Movimiento')
+            
+        if submit_movement:
+            guardar_movimiento_inventario(producto_movimiento, cantidad_movimiento, tipo_movimiento)
+            st.cache_data.clear()
+            st.experimental_rerun()
 
-    # --- Tabla de todos los estudiantes ---
+    # --- Ver Inventario actual ---
     st.markdown("---")
-    st.subheader('Tabla de Todos los Estudiantes')
-    st.dataframe(df_final, use_container_width=True)
+    st.subheader('📊 Inventario Actual')
+    movimientos_inventario = obtener_movimientos_inventario()
+    if movimientos_inventario:
+        df_inventario = obtener_inventario_actual(productos_map, movimientos_inventario)
+        st.dataframe(df_inventario, use_container_width=True)
+    else:
+        st.info("Aún no hay movimientos de inventario.")
+
+
+def pagina_despacho():
+    st.header('🧾 Despacho de Pedidos')
+    st.write('Registra las ventas y el consumo de productos por mesa.')
+    
+    productos_map = obtener_productos()
+    
+    if not productos_map:
+        st.warning("No hay referencias de productos. Por favor, agrega algunas en el módulo de Inventario.")
+        return
+
+    # --- Formulario de pedido ---
+    st.markdown("---")
+    st.subheader('📝 Registrar Nuevo Pedido')
+    with st.form(key='order_form'):
+        col1, col2 = st.columns(2)
+        with col1:
+            mesa = st.text_input("Número o Nombre de la Mesa (ej. 'Mesa 5', 'Terraza')")
+        with col2:
+            encargado = st.text_input("Nombre del Encargado")
+
+        st.markdown("#### Artículos del Pedido")
+        articulos_pedido = {}
+        for id_ref, nombre_ref in productos_map.items():
+            cantidad = st.number_input(f"{nombre_ref}", min_value=0, value=0, key=f"item_{id_ref}")
+            if cantidad > 0:
+                articulos_pedido[id_ref] = cantidad
+
+        submit_order = st.form_submit_button('Guardar Pedido')
+    
+    if submit_order:
+        if not mesa or not encargado or not articulos_pedido:
+            st.error("Por favor, completa la mesa, el encargado y agrega al menos un artículo.")
+        else:
+            items_list = [{'id_referencia': id_ref, 'cantidad': cantidad} for id_ref, cantidad in articulos_pedido.items()]
+            guardar_pedido(mesa, encargado, items_list)
+            st.cache_data.clear()
+            st.experimental_rerun()
+
+    # --- Historial de pedidos ---
+    st.markdown("---")
+    st.subheader('📄 Historial de Pedidos')
+    pedidos = obtener_pedidos()
+    if pedidos:
+        df_pedidos = pd.DataFrame(pedidos)
+        df_pedidos['fecha'] = pd.to_datetime(df_pedidos['fecha']).dt.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Procesar los items para una mejor visualización
+        def format_items(items_list):
+            if not isinstance(items_list, list):
+                return ""
+            return ", ".join([f"{productos_map.get(item['id_referencia'], item['id_referencia'])} x{item['cantidad']}" for item in items_list])
+
+        df_pedidos['Productos'] = df_pedidos['items'].apply(format_items)
+        df_display = df_pedidos[['fecha', 'mesa', 'encargado', 'Productos']]
+
+        opcion_agrupar = st.selectbox(
+            "Agrupar por:",
+            options=['No agrupar', 'Mesa', 'Encargado']
+        )
+        
+        if opcion_agrupar == 'Mesa':
+            st.dataframe(df_display.sort_values(by='mesa'), use_container_width=True)
+        elif opcion_agrupar == 'Encargado':
+            st.dataframe(df_display.sort_values(by='encargado'), use_container_width=True)
+        else:
+            st.dataframe(df_display.sort_values(by='fecha', ascending=False), use_container_width=True)
+    else:
+        st.info("Aún no hay pedidos registrados.")
 
 def main():
-    st.title('📋 Sistema de Asistencia y Gestión de Estudiantes')
-    
-    # Intenta obtener la lista de estudiantes
-    with st.spinner('Cargando lista de estudiantes...'):
-        df_excel = obtener_estudiantes_de_excel()
-        df_registros = obtener_estudiantes_agregados()
-    
-    # Unir las listas y quitar duplicados. Los de la base de datos tienen prioridad.
-    df_registros_filtrados = df_registros[['Nombre Completo', 'Cedula', 'Telefono', 'ID Personalizado', 'Nombre', 'Apellido']] if 'ID Personalizado' in df_registros.columns else pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono', 'ID Personalizado', 'Nombre', 'Apellido'])
-    
-    df_excel_con_nombre_apellido = df_excel.copy()
-    df_excel_con_nombre_apellido['Nombre'] = df_excel_con_nombre_apellido['Nombre Completo'].str.split().str[0]
-    df_excel_con_nombre_apellido['Apellido'] = df_excel_con_nombre_apellido['Nombre Completo'].str.split().str[1:].str.join(' ')
-
-    df_final = pd.concat([df_excel_con_nombre_apellido, df_registros_filtrados], ignore_index=True).drop_duplicates(subset=['Cedula'], keep='last')
-    
-    # Fetch groups data and add it to the final dataframe
-    grupos_ref = db.collection('grupos')
-    grupos_docs = grupos_ref.stream()
-    grupos_map = {}
-    for doc in grupos_docs:
-        grupo = doc.to_dict()
-        for cedula in grupo['estudiantes']:
-            if cedula not in grupos_map:
-                grupos_map[cedula] = []
-            grupos_map[cedula].append(doc.id)
-
-    df_final['Grupos'] = df_final['Cedula'].apply(lambda x: ', '.join(grupos_map.get(x, [])))
-
+    st.title('🍻 Sistema de Gestión para Bar')
     st.sidebar.title('Menú')
-    opcion = st.sidebar.radio('Navegación', ['Toma de Asistencia', 'Gestión de Estudiantes'])
+    opcion = st.sidebar.radio('Navegación', ['Gestión de Inventario', 'Despacho de Pedidos'])
     
-    if opcion == 'Toma de Asistencia':
-        pagina_toma_asistencia(df_final)
-    elif opcion == 'Gestión de Estudiantes':
-        pagina_gestion_estudiantes(df_final)
+    if opcion == 'Gestión de Inventario':
+        pagina_inventario()
+    elif opcion == 'Despacho de Pedidos':
+        pagina_despacho()
 
 if __name__ == '__main__':
     main()
