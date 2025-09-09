@@ -171,7 +171,17 @@ def marcar_pedidos_pagados(pedido_ids):
 def obtener_productos():
     """Obtiene todas las referencias de productos de Firestore."""
     productos = db.collection('productos').stream()
-    return {doc.id: {'nombre': doc.to_dict()['nombre'], 'precio': doc.to_dict().get('precio', 0)} for doc in productos}
+    productos_map = {}
+    for doc in productos:
+        data = doc.to_dict()
+        precio = data.get('precio', 0)
+        # Asegurarse de que el precio es un número antes de almacenarlo
+        if isinstance(precio, (int, float)):
+            data['precio'] = float(precio)
+        else:
+            data['precio'] = 0.0 # Valor por defecto si no es numérico
+        productos_map[doc.id] = data
+    return productos_map
 
 @st.cache_data
 def obtener_movimientos_inventario():
@@ -250,7 +260,8 @@ def pagina_inventario():
             )
             
             nombre_actual = productos_map[producto_a_editar]['nombre']
-            precio_actual = productos_map[producto_a_editar]['precio']
+            # Asegurarse de que el precio es un float antes de usarlo
+            precio_actual = float(productos_map[producto_a_editar]['precio'])
 
             col_edit1, col_edit2 = st.columns(2)
             with col_edit1:
