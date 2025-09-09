@@ -5,6 +5,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore import Client
 from datetime import datetime
+import random # Importar el módulo random
 
 # --- Configuración de la página y Estilos Futuristas ---
 st.set_page_config(layout="wide")
@@ -234,32 +235,37 @@ def pagina_inventario():
     # --- Agregar nueva referencia de producto ---
     st.markdown("---")
     st.subheader('➕ Agregar Nueva Referencia')
+
+    # Generar una ID única y aleatoria antes del formulario para que no cambie en cada interacción
+    if 'nueva_id' not in st.session_state:
+        nueva_id = str(random.randint(1, 10000))
+        while nueva_id in productos_map:
+            nueva_id = str(random.randint(1, 10000))
+        st.session_state.nueva_id = nueva_id
+
     with st.form(key='add_product_form'):
         col1, col2 = st.columns(2)
         with col1:
             nombre_referencia = st.text_input("Nombre de la Referencia (ej. 'Aguila')").strip()
         with col2:
-            descripcion_referencia = st.text_input("Descripción (ej. 'Litro', 'Lata 330ml')").strip()
-
-        # Generar una sugerencia de ID basada en el nombre y la descripción
-        sugerido_id = f"{nombre_referencia.lower().replace(' ', '-')}-{descripcion_referencia.lower().replace(' ', '-')}" if nombre_referencia and descripcion_referencia else ""
-        
-        col_id, col_precio = st.columns(2)
-        with col_id:
-            id_referencia = st.text_input("ID de Referencia (automática, editable)", value=sugerido_id).strip()
-        with col_precio:
             precio = st.number_input("Precio por Unidad", min_value=0.0, step=0.01)
+        
+        # El ID de referencia ahora es generado automáticamente
+        id_referencia = st.text_input("ID de Referencia (automática, no editable)", value=st.session_state.nueva_id, disabled=True)
         
         submit_product = st.form_submit_button('Guardar Referencia')
     
     if submit_product:
-        if nombre_referencia and id_referencia and precio > 0:
-            # Revisa si la ID de referencia ya existe antes de guardar
+        if nombre_referencia and precio > 0:
+            # Revisa si la ID de referencia ya existe antes de guardar (segundo chequeo)
             doc_ref = db.collection('productos').document(id_referencia)
             if doc_ref.get().exists:
                 st.error(f"Error: La ID de referencia '{id_referencia}' ya existe. Por favor, usa una ID única para el nuevo producto.")
             else:
                 guardar_producto(id_referencia, nombre_referencia, precio)
+                st.success("Referencia agregada exitosamente.")
+                # Borra la ID del estado de la sesión para generar una nueva en la próxima carga
+                del st.session_state.nueva_id
                 st.cache_data.clear()
                 st.rerun()
         else:
