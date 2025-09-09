@@ -7,6 +7,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore import Client
 from requests.exceptions import RequestException
+from datetime import date
 
 # Initialize Firebase (already done in the environment)
 try:
