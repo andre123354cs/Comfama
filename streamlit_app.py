@@ -218,59 +218,6 @@ def obtener_inventario_actual(productos_map, movimientos_inventario):
     df_inventario['Precio Unitario'] = df_inventario['ID Referencia'].map({k: v['precio'] for k, v in productos_map.items()})
     return df_inventario[['Nombre Referencia', 'ID Referencia', 'Cantidad', 'Precio Unitario']]
 
-def cargar_datos_iniciales():
-    """Carga una lista inicial de cervezas en el inventario."""
-    cervezas_data = [
-        {"id": "aguila_original_lata", "nombre": "Águila Original Lata 330 ml", "precio_range": "3200"},
-        {"id": "aguila_original_botella", "nombre": "Águila Original Botella 330 ml", "precio_range": "3500"},
-        {"id": "aguila_light_lata", "nombre": "Águila Light Lata 330 ml", "precio_range": "3400"},
-        {"id": "aguila_light_botella", "nombre": "Águila Light Botella 330 ml", "precio_range": "3600"},
-        {"id": "poker_lata", "nombre": "Póker Lata 330 ml", "precio_range": "3600"},
-        {"id": "poker_botella", "nombre": "Póker Botella 330 ml", "precio_range": "3800"},
-        {"id": "club_colombia_dorada_lata", "nombre": "Club Colombia Dorada Lata 330 ml", "precio_range": "4000"},
-        {"id": "club_colombia_dorada_botella", "nombre": "Club Colombia Dorada Botella 330 ml", "precio_range": "4200"},
-        {"id": "club_colombia_roja_lata", "nombre": "Club Colombia Roja Lata 330 ml", "precio_range": "4000"},
-        {"id": "club_colombia_negra_botella", "nombre": "Club Colombia Negra Botella 330 ml", "precio_range": "4200"},
-        {"id": "costena_lata", "nombre": "Costeña Lata 330 ml", "precio_range": "2500"},
-        {"id": "costena_bacana_lata", "nombre": "Costeña Bacana Lata 330 ml", "precio_range": "2800"},
-        {"id": "andina_lata", "nombre": "Andina Lata 310 ml", "precio_range": "3000"},
-        {"id": "andina_light_botella", "nombre": "Andina Light Botella 300 ml", "precio_range": "2700"},
-        {"id": "corona_extra_botella", "nombre": "Corona Extra Botella 330 ml", "precio_range": "4500"},
-        {"id": "heineken_lata", "nombre": "Heineken Lata 330 ml", "precio_range": "4000"},
-        {"id": "budweiser_lata", "nombre": "Budweiser Lata 269 ml", "precio_range": "3300"},
-        {"id": "bbc_lager_botella", "nombre": "BBC Lager Botella 330 ml", "precio_range": "4000"},
-        {"id": "bbc_monserrate_roja_botella", "nombre": "BBC Monserrate Roja Botella 330 ml", "precio_range": "4500"},
-        {"id": "3_cordilleras_varias_botella", "nombre": "3 Cordilleras (varias referencias) Botella 330 ml", "precio_range": "5000"},
-    ]
-    
-    productos_existentes = obtener_productos()
-    
-    st.info("Cargando datos iniciales del inventario...")
-    
-    for cerveza in cervezas_data:
-        id_referencia = cerveza['id']
-        if id_referencia not in productos_existentes:
-            nombre = cerveza['nombre']
-            precio = float(cerveza['precio_range'])
-            
-            # Guardar el producto y su inventario inicial
-            guardar_producto(id_referencia, nombre, precio)
-            guardar_movimiento_inventario(id_referencia, 10, 'entrada')
-            st.success(f"Producto '{nombre}' agregado al inventario con 10 unidades.")
-    
-    st.info("Carga de datos iniciales completada.")
-    st.cache_data.clear()
-
-# --- Verificar si los datos iniciales ya fueron cargados ---
-if 'initial_data_loaded' not in st.session_state:
-    try:
-        if not db.collection('productos').limit(1).get():
-            cargar_datos_iniciales()
-            st.session_state['initial_data_loaded'] = True
-    except Exception as e:
-        st.error(f"Error al verificar la base de datos para datos iniciales: {e}")
-
-
 def pagina_inventario():
     st.header('📦 Gestión de Inventario')
     st.write('Agrega nuevas referencias de productos o registra movimientos de stock.')
@@ -533,4 +480,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
