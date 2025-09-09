@@ -359,9 +359,6 @@ def pagina_inventario():
 
 
 def pagina_despacho():
-    st.header('🧾 Despacho de Pedidos')
-    st.write('Registra las ventas y el consumo de productos por mesa.')
-    
     productos_map = obtener_productos()
     
     if not productos_map:
@@ -369,6 +366,8 @@ def pagina_despacho():
         return
 
     # --- Formulario de pedido ---
+    st.header('🧾 Despacho de Pedidos')
+    st.write('Registra las ventas y el consumo de productos por mesa.')
     st.markdown("---")
     st.subheader('📝 Registrar Nuevo Pedido')
     with st.form(key='order_form'):
@@ -412,38 +411,6 @@ def pagina_despacho():
             st.cache_data.clear()
             st.rerun()
 
-    # --- Historial de pedidos ---
-    st.markdown("---")
-    st.subheader('📄 Historial de Pedidos')
-    pedidos = obtener_pedidos()
-    if pedidos:
-        df_pedidos = pd.DataFrame(pedidos)
-        df_pedidos['fecha'] = pd.to_datetime(df_pedidos['fecha']).dt.strftime('%Y-%m-%d %H:%M:%S')
-
-        # Procesar los items para una mejor visualización
-        def format_items(items_list):
-            if not isinstance(items_list, list):
-                return ""
-            return ", ".join([f"{productos_map.get(item['id_referencia'], {'nombre': item['id_referencia']})['nombre']} x{item['cantidad']}" for item in items_list])
-
-        df_pedidos['Productos'] = df_pedidos['items'].apply(format_items)
-        df_display = df_pedidos[['fecha', 'mesa', 'encargado', 'Productos', 'valor_total']]
-        df_display = df_display.rename(columns={'valor_total': 'Valor Total'})
-        df_display['Valor Total'] = df_display['Valor Total'].apply(lambda x: f"${x:,.2f}")
-
-        opcion_agrupar = st.selectbox(
-            "Agrupar por:",
-            options=['No agrupar', 'Mesa', 'Encargado']
-        )
-        
-        if opcion_agrupar == 'Mesa':
-            st.dataframe(df_display.sort_values(by='mesa'), use_container_width=True)
-        elif opcion_agrupar == 'Encargado':
-            st.dataframe(df_display.sort_values(by='encargado'), use_container_width=True)
-        else:
-            st.dataframe(df_display.sort_values(by='fecha', ascending=False), use_container_width=True)
-    else:
-        st.info("Aún no hay pedidos registrados.")
 
 def pagina_facturacion():
     st.header('🧾 Facturación y Cuentas')
