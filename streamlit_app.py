@@ -4,42 +4,33 @@ import os
 from datetime import date
 import requests
 import io
-import zipfile
 
 # Nombre del archivo para guardar la asistencia
 ASISTENCIA_FILE = 'asistencia.csv'
 
 # URL del archivo Excel para descargar la lista de estudiantes
-EXCEL_URL = 'https://powerbi.yesbpo.com/public.php/dav/files/m5ytip22YkX5SKt/?accept=zip'
+EXCEL_URL = 'https://powerbi.yesbpo.com/public.php/dav/files/m5ytip22YkX5SKt/'
 
 @st.cache_data
 def obtener_estudiantes_de_excel():
     """
-    Descarga el archivo Excel de la URL, lo descomprime,
+    Descarga el archivo Excel de la URL,
     lee la hoja 'Lista' y devuelve la columna de nombres.
     """
     try:
-        # Descarga el archivo zip
+        # Descarga el archivo directamente
         response = requests.get(EXCEL_URL)
         response.raise_for_status() # Lanza un error para códigos de estado HTTP incorrectos
         
-        # Lee el contenido del zip en memoria
-        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-            # Busca el archivo .xlsx dentro del zip
-            excel_file_path = [f for f in z.namelist() if f.endswith('.xlsx') or f.endswith('.xls')]
-            if not excel_file_path:
-                st.error("No se encontró ningún archivo de Excel dentro del zip.")
-                return []
-            
-            # Abre el archivo de Excel y lo lee con pandas
-            with z.open(excel_file_path[0]) as f:
-                df = pd.read_excel(f, sheet_name='Lista')
-                # Asume que la columna de nombres se llama 'NOMBRE'. Puedes cambiarla si es diferente.
-                if 'NOMBRE' in df.columns:
-                    return df['NOMBRE'].tolist()
-                else:
-                    st.error("La hoja 'Lista' no contiene la columna 'NOMBRE'.")
-                    return []
+        # Lee el contenido del archivo en memoria
+        df = pd.read_excel(io.BytesIO(response.content), sheet_name='Lista')
+        
+        # Asume que la columna de nombres se llama 'NOMBRE'. Puedes cambiarla si es diferente.
+        if 'NOMBRE' in df.columns:
+            return df['NOMBRE'].tolist()
+        else:
+            st.error("La hoja 'Lista' no contiene la columna 'NOMBRE'.")
+            return []
     
     except requests.exceptions.RequestException as e:
         st.error(f"Error al descargar el archivo: {e}")
