@@ -127,6 +127,11 @@ def guardar_producto(id_referencia, nombre_referencia, precio):
     doc_ref = db.collection('productos').document(id_referencia)
     doc_ref.set({'nombre': nombre_referencia, 'precio': precio})
 
+def actualizar_producto(id_referencia, nombre_referencia, precio):
+    """Actualiza una referencia de producto existente en Firestore."""
+    doc_ref = db.collection('productos').document(id_referencia)
+    doc_ref.update({'nombre': nombre_referencia, 'precio': precio})
+
 def guardar_movimiento_inventario(id_referencia, cantidad, tipo_movimiento):
     """Guarda un movimiento de inventario (entrada o salida) en Firestore."""
     db.collection('inventario_movimientos').add({
@@ -177,8 +182,15 @@ def obtener_movimientos_inventario():
 @st.cache_data
 def obtener_pedidos():
     """Obtiene todos los pedidos de Firestore."""
-    pedidos = db.collection('pedidos').stream()
-    return [{**doc.to_dict(), 'id': doc.id} for doc in pedidos]
+    pedidos_data = []
+    pedidos_stream = db.collection('pedidos').stream()
+    for doc in pedidos_stream:
+        doc_dict = doc.to_dict()
+        doc_dict['id'] = doc.id
+        doc_dict['valor_total'] = doc_dict.get('valor_total', 0)  # Manejar el caso de 'valor_total' ausente
+        doc_dict['estado'] = doc_dict.get('estado', 'pendiente')  # Manejar el caso de 'estado' ausente
+        pedidos_data.append(doc_dict)
+    return pedidos_data
 
 def obtener_inventario_actual(productos_map, movimientos_inventario):
     """Calcula el inventario actual a partir de los movimientos."""
@@ -223,6 +235,40 @@ def pagina_inventario():
             st.rerun()
         else:
             st.error("Por favor, llena todos los campos y asegúrate de que el precio sea mayor que 0.")
+
+    # --- Editar referencia existente ---
+    st.markdown("---")
+    st.subheader('✏️ Editar Referencia Existente')
+    if not productos_map:
+        st.info("No hay referencias para editar.")
+    else:
+        with st.form(key='edit_product_form'):
+            producto_a_editar = st.selectbox(
+                "Selecciona la Referencia a editar",
+                options=sorted(productos_map.keys()),
+                format_func=lambda x: f"{productos_map[x]['nombre']} ({x})"
+            )
+            
+            nombre_actual = productos_map[producto_a_editar]['nombre']
+            precio_actual = productos_map[producto_a_editar]['precio']
+
+            col_edit1, col_edit2 = st.columns(2)
+            with col_edit1:
+                nuevo_nombre = st.text_input("Nuevo Nombre de Referencia", value=nombre_actual).strip()
+            with col_edit2:
+                nuevo_precio = st.number_input("Nuevo Precio por Unidad", min_value=0.0, step=0.01, value=precio_actual)
+            
+            submit_edit = st.form_submit_button('Guardar Cambios')
+
+        if submit_edit:
+            if nuevo_nombre and nuevo_precio > 0:
+                actualizar_producto(producto_a_editar, nuevo_nombre, nuevo_precio)
+                st.success(f"Referencia '{nuevo_nombre}' actualizada exitosamente.")
+                st.cache_data.clear()
+                st.rerun()
+            else:
+                st.error("Por favor, llena todos los campos y asegúrate de que el precio sea mayor que 0.")
+
 
     # --- Registrar movimiento de inventario ---
     st.markdown("---")
