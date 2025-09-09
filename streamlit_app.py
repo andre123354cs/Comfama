@@ -217,16 +217,24 @@ def modificar_estudiante(cedula_anterior, nuevo_nombre, nuevo_apellido, nueva_ce
     Modifica un estudiante existente en la base de datos Firestore.
     """
     estudiantes_ref = db.collection('estudiantes_agregados')
+    doc_ref_anterior = estudiantes_ref.document(str(cedula_anterior))
+    doc_anterior = doc_ref_anterior.get()
 
+    if not doc_anterior.exists:
+        # Si el estudiante no existe en Firestore (viene del Excel), lo agregamos primero
+        st.info("El estudiante no se encontró en la base de datos. Agregándolo...")
+        agregar_estudiante(nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono)
+        return
+
+    # Si la cédula cambió, eliminamos el registro anterior y creamos uno nuevo
     if cedula_anterior != nueva_cedula:
-        # Si la cédula cambió, eliminamos el registro anterior y creamos uno nuevo
-        estudiantes_ref.document(str(cedula_anterior)).delete()
+        doc_ref_anterior.delete()
         agregar_estudiante(nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono)
         st.success(f"¡Estudiante con cédula '{cedula_anterior}' modificado a '{nueva_cedula}' exitosamente!")
     else:
-        # Si la cédula no cambió, solo actualizamos los campos
+        # Si la cédula es la misma, solo actualizamos los campos
         custom_id = f"{nuevo_nombre[0].upper()}{str(nueva_cedula)[-3:]}"
-        estudiantes_ref.document(str(cedula_anterior)).update({
+        doc_ref_anterior.update({
             'Nombre': nuevo_nombre,
             'Apellido': nuevo_apellido,
             'Telefono': nuevo_telefono,
@@ -243,6 +251,38 @@ def eliminar_estudiante(cedula):
     estudiantes_ref.delete()
     st.success(f"¡Estudiante con cédula '{cedula}' eliminado exitosamente!")
     st.rerun()
+
+def eliminar_todos_estudiantes():
+    """
+    Elimina todos los estudiantes de la colección 'estudiantes_agregados'.
+    """
+    estudiantes_ref = db.collection('estudiantes_agregados')
+    docs = estudiantes_ref.stream()
+    for doc in docs:
+        doc.reference.delete()
+    st.success("¡Todos los estudiantes de la base de datos han sido eliminados!")
+    st.rerun()
+
+def guardar_grupo(nombre_grupo, estudiantes_cedulas):
+    """
+    Guarda un grupo de estudiantes en la base de datos Firestore.
+    """
+    grupos_ref = db.collection('grupos')
+    grupos_ref.document(nombre_grupo).set({
+        'estudiantes': estudiantes_cedulas
+    })
+    st.success(f"Grupo '{nombre_grupo}' guardado exitosamente.")
+    st.rerun()
+
+def eliminar_grupo(nombre_grupo):
+    """
+    Elimina un grupo de la base de datos Firestore.
+    """
+    grupos_ref = db.collection('grupos').document(nombre_grupo)
+    grupos_ref.delete()
+    st.success(f"Grupo '{nombre_grupo}' eliminado exitosamente.")
+    st.rerun()
+
 
 def pagina_toma_asistencia(df_final):
     st.header('📝 Toma de Asistencia')
@@ -299,11 +339,8 @@ def pagina_gestion_estudiantes(df_final):
     st.header('🛠️ Gestión de Estudiantes')
     st.write('Aquí puedes ver, agregar, modificar y eliminar registros de estudiantes.')
     
-    # ------------------
-    # Gestión de registros
-    # ------------------
+    # --- Agregar estudiante ---
     st.markdown("---")
-    
     st.subheader('➕ Agregar Nuevo Estudiante')
     with st.form(key='agregar_estudiante_form'):
         col1, col2 = st.columns(2)
@@ -323,8 +360,8 @@ def pagina_gestion_estudiantes(df_final):
             st.error("Por favor, completa los campos de Nombre, Apellido y Cédula.")
             st.stop()
 
+    # --- Modificar/Eliminar estudiante ---
     st.markdown("---")
-
     st.subheader('✏️ Modificar o Eliminar Estudiante')
     if not df_final.empty:
         df_final = df_final.set_index('Cedula')
@@ -360,6 +397,52 @@ def pagina_gestion_estudiantes(df_final):
                 if st.button('Confirmar Eliminación'):
                     eliminar_estudiante(estudiante_data.name)
     
+    # --- Eliminar todos los estudiantes ---
+    st.markdown("---")
+    st.subheader('🔥 Eliminar Todos los Estudiantes de la Base de Datos')
+    st.warning("⚠️ Esta acción es irreversible y eliminará todos los estudiantes agregados manualmente. Los estudiantes del Excel permanecerán.")
+    if st.button('Confirmar y Eliminar Todos'):
+        eliminar_todos_estudiantes()
+
+    # --- Gestión de Grupos ---
+    st.markdown("---")
+    st.header('👥 Gestión de Grupos')
+    st.write('Crea, modifica y elimina grupos de estudiantes. Un estudiante puede pertenecer a varios grupos.')
+
+    st.subheader('➕ Agregar o Modificar Grupo')
+    with st.form(key='group_form'):
+        nombre_grupo = st.text_input("Nombre del Grupo")
+        all_students = df_final['Nombre Completo'].tolist()
+        estudiantes_seleccionados = st.multiselect("Selecciona los estudiantes para este grupo", options=all_students)
+
+        guardar_grupo_button = st.form_submit_button("Guardar Grupo")
+
+    if guardar_grupo_button:
+        if nombre_grupo and estudiantes_seleccionados:
+            cedulas_seleccionadas = df_final[df_final['Nombre Completo'].isin(estudiantes_seleccionados)]['Cedula'].tolist()
+            guardar_grupo(nombre_grupo, cedulas_seleccionadas)
+        else:
+            st.error("Por favor, ingresa un nombre para el grupo y selecciona al menos un estudiante.")
+            
+    st.markdown("---")
+    st.subheader('👁️ Grupos Existentes')
+    grupos_ref = db.collection('grupos')
+    grupos_docs = grupos_ref.stream()
+    
+    grupos_data = {doc.id: doc.to_dict()['estudiantes'] for doc in grupos_docs}
+    if grupos_data:
+        for group_name, estudiantes_cedulas in grupos_data.items():
+            st.write(f"**Grupo:** {group_name}")
+            nombres_en_grupo = df_final[df_final['Cedula'].isin(estudiantes_cedulas)]['Nombre Completo'].tolist()
+            st.markdown(f"**Estudiantes:** {', '.join(nombres_en_grupo)}")
+            
+            if st.button(f"Eliminar Grupo {group_name}"):
+                eliminar_grupo(group_name)
+            st.markdown("---")
+    else:
+        st.info("Aún no hay grupos creados.")
+
+    # --- Tabla de todos los estudiantes ---
     st.markdown("---")
     st.subheader('Tabla de Todos los Estudiantes')
     st.dataframe(df_final, use_container_width=True)
@@ -373,9 +456,26 @@ def main():
         df_registros = obtener_estudiantes_agregados()
     
     # Unir las listas y quitar duplicados. Los de la base de datos tienen prioridad.
-    df_registros_filtrados = df_registros[['Nombre Completo', 'Cedula', 'Telefono', 'ID Personalizado']] if 'ID Personalizado' in df_registros.columns else pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono', 'ID Personalizado'])
+    df_registros_filtrados = df_registros[['Nombre Completo', 'Cedula', 'Telefono', 'ID Personalizado', 'Nombre', 'Apellido']] if 'ID Personalizado' in df_registros.columns else pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono', 'ID Personalizado', 'Nombre', 'Apellido'])
     
-    df_final = pd.concat([df_excel, df_registros_filtrados], ignore_index=True).drop_duplicates(subset=['Cedula'], keep='last')
+    df_excel_con_nombre_apellido = df_excel.copy()
+    df_excel_con_nombre_apellido['Nombre'] = df_excel_con_nombre_apellido['Nombre Completo'].str.split().str[0]
+    df_excel_con_nombre_apellido['Apellido'] = df_excel_con_nombre_apellido['Nombre Completo'].str.split().str[1:].str.join(' ')
+
+    df_final = pd.concat([df_excel_con_nombre_apellido, df_registros_filtrados], ignore_index=True).drop_duplicates(subset=['Cedula'], keep='last')
+    
+    # Fetch groups data and add it to the final dataframe
+    grupos_ref = db.collection('grupos')
+    grupos_docs = grupos_ref.stream()
+    grupos_map = {}
+    for doc in grupos_docs:
+        grupo = doc.to_dict()
+        for cedula in grupo['estudiantes']:
+            if cedula not in grupos_map:
+                grupos_map[cedula] = []
+            grupos_map[cedula].append(doc.id)
+
+    df_final['Grupos'] = df_final['Cedula'].apply(lambda x: ', '.join(grupos_map.get(x, [])))
 
     st.sidebar.title('Menú')
     opcion = st.sidebar.radio('Navegación', ['Toma de Asistencia', 'Gestión de Estudiantes'])
@@ -387,4 +487,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
