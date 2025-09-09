@@ -10,7 +10,10 @@ from requests.exceptions import RequestException
 
 # Initialize Firebase (already done in the environment)
 try:
-    firebase_config = json.loads(st.secrets["FIREBASE_CONFIG"])
+    # Cargar la configuración como una cadena y luego parsearla a JSON
+    firebase_config_str = st.secrets["FIREBASE_CONFIG"]
+    firebase_config = json.loads(firebase_config_str)
+    
     if not firebase_admin._apps:
         cred = credentials.Certificate(firebase_config)
         firebase_admin.initialize_app(cred)
@@ -18,6 +21,10 @@ try:
 except KeyError:
     st.error("Error: FIREBASE_CONFIG not found in secrets. Please configure it in your Streamlit app's secrets.")
     st.stop()
+except ValueError:
+    st.error("Error: El formato de FIREBASE_CONFIG en secrets no es un JSON válido. Revisa que las credenciales estén copiadas correctamente.")
+    st.stop()
+
 
 # URL del archivo Excel para descargar la lista de estudiantes
 EXCEL_URL = 'https://powerbi.yesbpo.com/public.php/dav/files/m5ytip22YkX5SKt/'
