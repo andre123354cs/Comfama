@@ -235,12 +235,19 @@ def pagina_inventario():
     st.markdown("---")
     st.subheader('➕ Agregar Nueva Referencia')
     with st.form(key='add_product_form'):
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
             nombre_referencia = st.text_input("Nombre de la Referencia (ej. 'Aguila')").strip()
         with col2:
-            id_referencia = st.text_input("ID de Referencia (ej. 'aguila001')").strip()
-        with col3:
+            descripcion_referencia = st.text_input("Descripción (ej. 'Litro', 'Lata 330ml')").strip()
+
+        # Generar una sugerencia de ID basada en el nombre y la descripción
+        sugerido_id = f"{nombre_referencia.lower().replace(' ', '-')}-{descripcion_referencia.lower().replace(' ', '-')}" if nombre_referencia and descripcion_referencia else ""
+        
+        col_id, col_precio = st.columns(2)
+        with col_id:
+            id_referencia = st.text_input("ID de Referencia (automática, editable)", value=sugerido_id).strip()
+        with col_precio:
             precio = st.number_input("Precio por Unidad", min_value=0.0, step=0.01)
         
         submit_product = st.form_submit_button('Guardar Referencia')
