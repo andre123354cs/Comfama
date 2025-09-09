@@ -247,9 +247,14 @@ def pagina_inventario():
     
     if submit_product:
         if nombre_referencia and id_referencia and precio > 0:
-            guardar_producto(id_referencia, nombre_referencia, precio)
-            st.cache_data.clear()
-            st.rerun()
+            # Revisa si la ID de referencia ya existe antes de guardar
+            doc_ref = db.collection('productos').document(id_referencia)
+            if doc_ref.get().exists:
+                st.error(f"Error: La ID de referencia '{id_referencia}' ya existe. Por favor, usa una ID única para el nuevo producto.")
+            else:
+                guardar_producto(id_referencia, nombre_referencia, precio)
+                st.cache_data.clear()
+                st.rerun()
         else:
             st.error("Por favor, llena todos los campos y asegúrate de que el precio sea mayor que 0.")
 
@@ -465,7 +470,7 @@ def pagina_facturacion():
     else: # Por Encargado
         opciones_seleccion = sorted(df_pendientes['encargado'].unique())
         seleccionados = st.multiselect("Selecciona los encargados a facturar:", options=opciones_seleccion)
-        pedidos_seleccionados = df_pendientes[df_pendientes['encargado'].isin(seleccionados)]
+        pedidos_seleccionados = df_pendientes[df_pedidos['encargado'].isin(seleccionados)]
 
     st.markdown("---")
     st.subheader('Factura Consolidada')
