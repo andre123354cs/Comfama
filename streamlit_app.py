@@ -44,13 +44,13 @@ st.markdown("""
     }
     
     h1, h2, h3, h4 {
-        color: #8C8CFF;
-        border-bottom: 2px solid #5A5A99;
+        color: #6A99D9; /* Azul claro más vibrante */
+        border-bottom: 2px solid #5A7EAD; /* Borde más claro */
         padding-bottom: 10px;
     }
 
     .stButton>button {
-        background-color: #2E2E66;
+        background-color: #2E4566; /* Azul oscuro más claro */
         color: #E0E0FF;
         border: none;
         border-radius: 8px;
@@ -59,32 +59,32 @@ st.markdown("""
         transition: transform 0.2s, background-color 0.2s;
     }
     .stButton>button:hover {
-        background-color: #444488;
+        background-color: #3B5A80; /* Tono más claro al pasar el mouse */
         transform: translateY(-2px);
     }
     
     .stTextInput>div>div>input, .st-emotion-cache-1v0u6pi {
-        background-color: #1A1A2E;
-        border: 1px solid #3A3A5A;
+        background-color: #1A243B; /* Fondo de entrada más claro */
+        border: 1px solid #3A4E6B; /* Borde de entrada más claro */
         color: #E0E0FF;
         border-radius: 8px;
         padding: 10px;
     }
     
     .stSelectbox>div>div, .stDateInput>div>div {
-        background-color: #1A1A2E !important;
-        border: 1px solid #3A3A5A !important;
+        background-color: #1A243B !important;
+        border: 1px solid #3A4E6B !important;
         color: #E0E0FF !important;
         border-radius: 8px !important;
     }
     
     .st-emotion-cache-1v0u6pi {
-        background-color: #1A1A2E !important;
-        border: 1px solid #3A3A5A !important;
+        background-color: #1A243B !important;
+        border: 1px solid #3A4E6B !important;
     }
 
     .st-emotion-cache-1g6x8q2 {
-        background-color: #1A1A2E !important;
+        background-color: #1A243B !important;
     }
     
     .st-emotion-cache-1xw80s2 {
@@ -92,7 +92,7 @@ st.markdown("""
     }
 
     .st-emotion-cache-1cpx684 {
-        background-color: #1A1A2E !important;
+        background-color: #1A243B !important;
     }
     
     .st-emotion-cache-1k1qf03 {
@@ -193,6 +193,9 @@ def agregar_estudiante(nombre, apellido, cedula, telefono):
     """
     estudiantes_ref = db.collection('estudiantes_agregados')
     
+    # Generar el ID personalizado
+    custom_id = f"{nombre[0].upper()}{str(cedula)[-3:]}"
+
     doc_ref = estudiantes_ref.document(str(cedula))
     doc = doc_ref.get()
     
@@ -203,22 +206,33 @@ def agregar_estudiante(nombre, apellido, cedula, telefono):
             'Nombre': nombre,
             'Apellido': apellido,
             'Cedula': cedula,
-            'Telefono': telefono
+            'Telefono': telefono,
+            'ID Personalizado': custom_id
         })
-        st.success(f"¡Estudiante '{nombre} {apellido}' agregado exitosamente!")
+        st.success(f"¡Estudiante '{nombre} {apellido}' agregado exitosamente con ID: {custom_id}!")
     st.rerun()
 
-def modificar_estudiante(cedula, nuevo_nombre, nuevo_apellido, nuevo_telefono):
+def modificar_estudiante(cedula_anterior, nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono):
     """
     Modifica un estudiante existente en la base de datos Firestore.
     """
-    estudiantes_ref = db.collection('estudiantes_agregados').document(str(cedula))
-    estudiantes_ref.update({
-        'Nombre': nuevo_nombre,
-        'Apellido': nuevo_apellido,
-        'Telefono': nuevo_telefono
-    })
-    st.success(f"¡Estudiante con cédula '{cedula}' modificado exitosamente!")
+    estudiantes_ref = db.collection('estudiantes_agregados')
+
+    if cedula_anterior != nueva_cedula:
+        # Si la cédula cambió, eliminamos el registro anterior y creamos uno nuevo
+        estudiantes_ref.document(str(cedula_anterior)).delete()
+        agregar_estudiante(nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono)
+        st.success(f"¡Estudiante con cédula '{cedula_anterior}' modificado a '{nueva_cedula}' exitosamente!")
+    else:
+        # Si la cédula no cambió, solo actualizamos los campos
+        custom_id = f"{nuevo_nombre[0].upper()}{str(nueva_cedula)[-3:]}"
+        estudiantes_ref.document(str(cedula_anterior)).update({
+            'Nombre': nuevo_nombre,
+            'Apellido': nuevo_apellido,
+            'Telefono': nuevo_telefono,
+            'ID Personalizado': custom_id
+        })
+        st.success(f"¡Estudiante con cédula '{cedula_anterior}' modificado exitosamente!")
     st.rerun()
 
 def eliminar_estudiante(cedula):
@@ -327,7 +341,7 @@ def pagina_gestion_estudiantes(df_final):
                 col1, col2 = st.columns(2)
                 with col1:
                     mod_nombre = st.text_input('Nombre', value=estudiante_data.get('Nombre', ''), key='mod_nombre')
-                    mod_cedula = st.text_input('Cédula', value=estudiante_data.name, key='mod_cedula', disabled=True)
+                    mod_cedula = st.text_input('Cédula', value=estudiante_data.name, key='mod_cedula')
                 with col2:
                     mod_apellido = st.text_input('Apellido', value=estudiante_data.get('Apellido', ''), key='mod_apellido')
                     mod_telefono = st.text_input('Teléfono', value=estudiante_data.get('Telefono', ''), key='mod_telefono')
@@ -339,12 +353,12 @@ def pagina_gestion_estudiantes(df_final):
                     eliminar_button = st.form_submit_button('Eliminar Estudiante')
 
             if modificar_button:
-                modificar_estudiante(mod_cedula, mod_nombre, mod_apellido, mod_telefono)
+                modificar_estudiante(estudiante_data.name, mod_nombre, mod_apellido, mod_cedula, mod_telefono)
             
             if eliminar_button:
                 st.warning("Estás a punto de eliminar este estudiante. Esta acción es irreversible.")
                 if st.button('Confirmar Eliminación'):
-                    eliminar_estudiante(mod_cedula)
+                    eliminar_estudiante(estudiante_data.name)
     
     st.markdown("---")
     st.subheader('Tabla de Todos los Estudiantes')
@@ -359,7 +373,7 @@ def main():
         df_registros = obtener_estudiantes_agregados()
     
     # Unir las listas y quitar duplicados. Los de la base de datos tienen prioridad.
-    df_registros_filtrados = df_registros[['Nombre Completo', 'Cedula', 'Telefono', 'id']] if 'id' in df_registros.columns else pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono', 'id'])
+    df_registros_filtrados = df_registros[['Nombre Completo', 'Cedula', 'Telefono', 'ID Personalizado']] if 'ID Personalizado' in df_registros.columns else pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono', 'ID Personalizado'])
     
     df_final = pd.concat([df_excel, df_registros_filtrados], ignore_index=True).drop_duplicates(subset=['Cedula'], keep='last')
 
