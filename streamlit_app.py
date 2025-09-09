@@ -5,7 +5,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud.firestore import Client
 from datetime import datetime, date
-import random # Importar el módulo random
+import random
 
 # --- Configuración de la página y Estilos Futuristas ---
 st.set_page_config(layout="wide")
@@ -104,6 +104,15 @@ st.markdown("""
     .st-emotion-cache-s2s9y8 {
         background-color: #0A0A0E !important;
     }
+
+    .centered-container {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        text-align: center;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -157,9 +166,8 @@ def guardar_pedido(mesa, encargado, items, valor_total):
             'fecha': datetime.now().isoformat(),
             'items': items,
             'valor_total': valor_total,
-            'estado': 'pendiente'  # Nuevo campo de estado
+            'estado': 'pendiente'
         })
-        # Actualizar inventario (salida)
         for item in items:
             guardar_movimiento_inventario(item['id_referencia'], item['cantidad'], 'salida')
         st.success("Pedido guardado exitosamente y el inventario ha sido actualizado.")
@@ -182,11 +190,10 @@ def obtener_productos():
     for doc in productos:
         data = doc.to_dict()
         precio = data.get('precio', 0)
-        # Asegurarse de que el precio es un número antes de almacenarlo
         if isinstance(precio, (int, float)):
             data['precio'] = float(precio)
         else:
-            data['precio'] = 0.0 # Valor por defecto si no es numérico
+            data['precio'] = 0.0
         productos_map[doc.id] = data
     return productos_map
 
@@ -204,8 +211,8 @@ def obtener_pedidos():
     for doc in pedidos_stream:
         doc_dict = doc.to_dict()
         doc_dict['id'] = doc.id
-        doc_dict['valor_total'] = doc_dict.get('valor_total', 0)  # Manejar el caso de 'valor_total' ausente
-        doc_dict['estado'] = doc_dict.get('estado', 'pendiente')  # Manejar el caso de 'estado' ausente
+        doc_dict['valor_total'] = doc_dict.get('valor_total', 0)
+        doc_dict['estado'] = doc_dict.get('estado', 'pendiente')
         pedidos_data.append(doc_dict)
     return pedidos_data
 
@@ -232,11 +239,9 @@ def pagina_inventario():
 
     productos_map = obtener_productos()
     
-    # --- Agregar nueva referencia de producto ---
     st.markdown("---")
     st.subheader('➕ Agregar Nueva Referencia')
 
-    # Generar una ID única y aleatoria antes del formulario para que no cambie en cada interacción
     if 'nueva_id' not in st.session_state:
         nueva_id = str(random.randint(1, 10000))
         while nueva_id in productos_map:
@@ -250,28 +255,24 @@ def pagina_inventario():
         with col2:
             precio = st.number_input("Precio por Unidad", min_value=0.0, step=0.01)
         
-        # El ID de referencia ahora es generado automáticamente
         id_referencia = st.text_input("ID de Referencia (automática, no editable)", value=st.session_state.nueva_id, disabled=True)
         
         submit_product = st.form_submit_button('Guardar Referencia')
     
     if submit_product:
         if nombre_referencia and precio > 0:
-            # Revisa si la ID de referencia ya existe antes de guardar (segundo chequeo)
             doc_ref = db.collection('productos').document(id_referencia)
             if doc_ref.get().exists:
                 st.error(f"Error: La ID de referencia '{id_referencia}' ya existe. Por favor, usa una ID única para el nuevo producto.")
             else:
                 guardar_producto(id_referencia, nombre_referencia, precio)
                 st.success("Referencia agregada exitosamente.")
-                # Borra la ID del estado de la sesión para generar una nueva en la próxima carga
                 del st.session_state.nueva_id
                 st.cache_data.clear()
                 st.rerun()
         else:
             st.error("Por favor, llena todos los campos y asegúrate de que el precio sea mayor que 0.")
 
-    # --- Editar referencia existente ---
     st.markdown("---")
     st.subheader('✏️ Editar Referencia Existente')
     if not productos_map:
@@ -285,7 +286,6 @@ def pagina_inventario():
             )
             
             nombre_actual = productos_map[producto_a_editar]['nombre']
-            # Asegurarse de que el precio es un float antes de usarlo
             precio_actual = float(productos_map[producto_a_editar]['precio'])
 
             col_edit1, col_edit2 = st.columns(2)
@@ -305,7 +305,6 @@ def pagina_inventario():
             else:
                 st.error("Por favor, llena todos los campos y asegúrate de que el precio sea mayor que 0.")
 
-    # --- Eliminar referencia ---
     st.markdown("---")
     st.subheader('🗑️ Eliminar Referencia')
     if not productos_map:
@@ -318,13 +317,11 @@ def pagina_inventario():
                 format_func=lambda x: f"{productos_map[x]['nombre']} ({x})"
             )
             
-            # Botón de confirmación para eliminar
             if st.form_submit_button('Eliminar Referencia', type="primary"):
                 eliminar_producto(producto_a_eliminar)
                 st.cache_data.clear()
                 st.rerun()
 
-    # --- Registrar movimiento de inventario ---
     st.markdown("---")
     st.subheader('✍️ Registrar Movimiento de Inventario')
     
@@ -347,7 +344,6 @@ def pagina_inventario():
             st.cache_data.clear()
             st.rerun()
 
-    # --- Ver Inventario actual ---
     st.markdown("---")
     st.subheader('📊 Inventario Actual')
     movimientos_inventario = obtener_movimientos_inventario()
@@ -365,7 +361,6 @@ def pagina_despacho():
         st.warning("No hay referencias de productos. Por favor, agrega algunas en el módulo de Inventario.")
         return
 
-    # --- Formulario de pedido ---
     st.header('🧾 Despacho de Pedidos')
     st.write('Registra las ventas y el consumo de productos por mesa.')
     st.markdown("---")
@@ -373,7 +368,6 @@ def pagina_despacho():
     with st.form(key='order_form'):
         col1, col2 = st.columns(2)
         with col1:
-            # Dropdown con mesas predefinidas y opción opcional
             mesa_opciones = [str(i) for i in range(1, 9)]
             mesa_seleccionada = st.selectbox(
                 "Número de Mesa (Selecciona de la lista)",
@@ -382,7 +376,6 @@ def pagina_despacho():
             )
             mesa_personalizada = st.text_input("O agregar una mesa personalizada (ej. 'Barra')").strip()
             
-            # Usar la mesa personalizada si se ha escrito, de lo contrario, usar la seleccionada
             mesa = mesa_personalizada if mesa_personalizada else mesa_seleccionada
         
         with col2:
@@ -430,7 +423,6 @@ def pagina_facturacion():
         st.success("🎉 Todas las cuentas están al día. ¡No hay pedidos pendientes!")
         return
         
-    # Procesar los items para una mejor visualización
     def format_items(items_list):
         if not isinstance(items_list, list):
             return ""
@@ -447,7 +439,7 @@ def pagina_facturacion():
         opciones_seleccion = sorted(df_pendientes['mesa'].unique())
         seleccionados = st.multiselect("Selecciona las mesas a facturar:", options=opciones_seleccion)
         pedidos_seleccionados = df_pendientes[df_pendientes['mesa'].isin(seleccionados)]
-    else: # Por Encargado
+    else:
         opciones_seleccion = sorted(df_pendientes['encargado'].unique())
         seleccionados = st.multiselect("Selecciona los encargados a facturar:", options=opciones_seleccion)
         pedidos_seleccionados = df_pendientes[df_pedidos['encargado'].isin(seleccionados)]
@@ -490,7 +482,6 @@ def pagina_ventas():
     df_pedidos = pd.DataFrame(pedidos)
     df_pedidos['fecha'] = pd.to_datetime(df_pedidos['fecha']).dt.date
 
-    # --- Filtros ---
     st.markdown("---")
     st.subheader('Filtros de Búsqueda')
     col_estado, col_encargado, col_fechas = st.columns([1, 2, 2])
@@ -515,7 +506,6 @@ def pagina_ventas():
             value=(df_pedidos['fecha'].min(), df_pedidos['fecha'].max())
         )
 
-    # --- Aplicar filtros ---
     df_filtrado = df_pedidos.copy()
     
     if estado_filtro != 'Todos':
@@ -528,7 +518,6 @@ def pagina_ventas():
         (df_filtrado['fecha'] <= fecha_fin_filtro)
     ]
     
-    # Procesar los items para la visualización
     def format_items(items_list):
         if not isinstance(items_list, list):
             return ""
@@ -547,26 +536,48 @@ def pagina_ventas():
     st.subheader('Tabla de Ventas Filtradas')
     st.dataframe(df_display, use_container_width=True)
 
-    # --- Botón para calcular el valor total ---
     st.markdown("---")
     if st.button('💰 Calcular Valor Total de Ventas'):
         total_ventas = df_filtrado['valor_total'].sum()
         st.markdown(f"### Valor Total de Ventas: **${total_ventas:,.2f}**")
 
-
+# --- Lógica de la aplicación principal con autenticación ---
 def main():
-    st.title('🍻 Sistema de Gestión para Bar')
-    st.sidebar.title('Menú')
-    opcion = st.sidebar.radio('Navegación', ['Gestión de Inventario', 'Despacho de Pedidos', 'Facturación y Cuentas', 'Gestión de Ventas'])
-    
-    if opcion == 'Gestión de Inventario':
-        pagina_inventario()
-    elif opcion == 'Despacho de Pedidos':
-        pagina_despacho()
-    elif opcion == 'Facturación y Cuentas':
-        pagina_facturacion()
-    elif opcion == 'Gestión de Ventas':
-        pagina_ventas()
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+
+    if st.session_state.authenticated:
+        st.title('🍻 Sistema de Gestión para Bar')
+        st.sidebar.title('Menú')
+        opcion = st.sidebar.radio('Navegación', ['Gestión de Inventario', 'Despacho de Pedidos', 'Facturación y Cuentas', 'Gestión de Ventas'])
+        
+        if opcion == 'Gestión de Inventario':
+            pagina_inventario()
+        elif opcion == 'Despacho de Pedidos':
+            pagina_despacho()
+        elif opcion == 'Facturación y Cuentas':
+            pagina_facturacion()
+        elif opcion == 'Gestión de Ventas':
+            pagina_ventas()
+    else:
+        st.empty()
+        st.markdown("<div class='centered-container'>", unsafe_allow_html=True)
+        st.header('Bienvenido a tu Bar 🍻')
+        st.write('Por favor, ingresa el código para acceder al sistema.')
+        
+        with st.form(key='password_form'):
+            password = st.text_input('Código de Acceso', type='password')
+            submit_button = st.form_submit_button('Acceder')
+
+        if submit_button:
+            if password == '1106742184':
+                st.session_state.authenticated = True
+                st.success('¡Acceso concedido!')
+                st.rerun()
+            else:
+                st.error('Código incorrecto. Intenta de nuevo.')
+        st.markdown("</div>", unsafe_allow_html=True)
+
 
 if __name__ == '__main__':
     main()
