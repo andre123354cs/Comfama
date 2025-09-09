@@ -132,6 +132,12 @@ def actualizar_producto(id_referencia, nombre_referencia, precio):
     doc_ref = db.collection('productos').document(id_referencia)
     doc_ref.update({'nombre': nombre_referencia, 'precio': precio})
 
+def eliminar_producto(id_referencia):
+    """Elimina una referencia de producto de Firestore."""
+    db.collection('productos').document(id_referencia).delete()
+    st.success(f"La referencia '{id_referencia}' ha sido eliminada exitosamente.")
+
+
 def guardar_movimiento_inventario(id_referencia, cantidad, tipo_movimiento):
     """Guarda un movimiento de inventario (entrada o salida) en Firestore."""
     db.collection('inventario_movimientos').add({
@@ -280,6 +286,24 @@ def pagina_inventario():
             else:
                 st.error("Por favor, llena todos los campos y asegúrate de que el precio sea mayor que 0.")
 
+    # --- Eliminar referencia ---
+    st.markdown("---")
+    st.subheader('🗑️ Eliminar Referencia')
+    if not productos_map:
+        st.info("No hay referencias para eliminar.")
+    else:
+        with st.form(key='delete_product_form'):
+            producto_a_eliminar = st.selectbox(
+                "Selecciona la Referencia a eliminar",
+                options=sorted(productos_map.keys()),
+                format_func=lambda x: f"{productos_map[x]['nombre']} ({x})"
+            )
+            
+            # Botón de confirmación para eliminar
+            if st.form_submit_button('Eliminar Referencia', type="primary"):
+                eliminar_producto(producto_a_eliminar)
+                st.cache_data.clear()
+                st.rerun()
 
     # --- Registrar movimiento de inventario ---
     st.markdown("---")
