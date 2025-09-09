@@ -4,13 +4,43 @@ import os
 from datetime import date
 import requests
 import io
+import sqlite3
 from requests.exceptions import RequestException
 
 # Nombre del archivo para guardar la asistencia
 ASISTENCIA_FILE = 'asistencia.csv'
+# Nombre del archivo para la base de datos SQLite
+DATABASE_FILE = 'estudiantes.db'
 
 # URL del archivo Excel para descargar la lista de estudiantes
 EXCEL_URL = 'https://powerbi.yesbpo.com/public.php/dav/files/m5ytip22YkX5SKt/'
+
+def crear_tabla_estudiantes():
+    """
+    Crea la tabla de estudiantes si no existe.
+    """
+    conn = sqlite3.connect(DATABASE_FILE)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS estudiantes_agregados (
+            id INTEGER PRIMARY KEY,
+            Nombre TEXT NOT NULL,
+            Apellido TEXT NOT NULL,
+            Cedula TEXT UNIQUE NOT NULL,
+            Telefono TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def obtener_estudiantes_agregados():
+    """
+    Obtiene los estudiantes de la base de datos SQLite.
+    """
+    conn = sqlite3.connect(DATABASE_FILE)
+    df = pd.read_sql_query("SELECT Nombre, Apellido, Cedula, Telefono FROM estudiantes_agregados", conn)
+    conn.close()
+    return df
 
 @st.cache_data(show_spinner=False)
 def obtener_estudiantes_de_excel():
@@ -26,7 +56,6 @@ def obtener_estudiantes_de_excel():
         if 'Nombre' in df.columns and 'Apellido' in df.columns:
             df['Nombre Completo'] = df['Nombre'].fillna('') + ' ' + df['Apellido'].fillna('')
             df['Nombre Completo'] = df['Nombre Completo'].str.strip()
-            # Asegurar que las columnas Cedula y Telefono existan, aunque estén vacías
             for col in ['Cedula', 'Telefono']:
                 if col not in df.columns:
                     df[col] = ''
@@ -60,29 +89,23 @@ def guardar_asistencia(fecha_asistencia, registros):
 
 def agregar_estudiante(nombre, apellido, cedula, telefono):
     """
-    Agrega un nuevo estudiante a los secretos de Streamlit.
+    Agrega un nuevo estudiante a la base de datos SQLite.
     """
-    nuevo_registro = {
-        'Nombre': nombre,
-        'Apellido': apellido,
-        'Cedula': cedula,
-        'Telefono': telefono
-    }
-    
-    # Obtener el diccionario de registros, o crear uno si no existe
-    registros = st.secrets.get('registros_agregados', {})
-    
-    # Usar la cédula como clave para evitar duplicados
-    registros[cedula] = nuevo_registro
-    
-    # Guardar el diccionario actualizado en los secretos
-    st.secrets['registros_agregados'] = registros
-    
-    st.success(f"¡Estudiante '{nombre} {apellido}' agregado exitosamente!")
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        c = conn.cursor()
+        c.execute("INSERT INTO estudiantes_agregados (Nombre, Apellido, Cedula, Telefono) VALUES (?, ?, ?, ?)",
+                  (nombre, apellido, cedula, telefono))
+        conn.commit()
+        conn.close()
+        st.success(f"¡Estudiante '{nombre} {apellido}' agregado exitosamente!")
+    except sqlite3.IntegrityError:
+        st.error(f"Error: La cédula '{cedula}' ya existe en la base de datos.")
     st.rerun()
 
 def main():
     """Lógica principal de la aplicación Streamlit."""
+    crear_tabla_estudiantes()
     st.set_page_config(layout="wide")
     st.title('📋 Sistema de Asistencia y Gestión de Estudiantes')
     
@@ -121,15 +144,13 @@ def main():
     # Intenta obtener la lista de estudiantes
     with st.spinner('Cargando lista de estudiantes...'):
         df_excel = obtener_estudiantes_de_excel()
-    
-    # Cargar registros de st.secrets
-    registros_secrets = st.secrets.get('registros_agregados', {})
-    df_registros = pd.DataFrame.from_dict(registros_secrets, orient='index')
+        df_registros = obtener_estudiantes_agregados()
     
     # Si hay registros, crear la columna de Nombre Completo
     if not df_registros.empty:
         df_registros['Nombre Completo'] = df_registros['Nombre'].fillna('') + ' ' + df_registros['Apellido'].fillna('')
         df_registros['Nombre Completo'] = df_registros['Nombre Completo'].str.strip()
+    
     # Unir las listas y quitar duplicados
     if not df_registros.empty:
         df_final = pd.concat([df_excel, df_registros[['Nombre Completo']]], ignore_index=True).drop_duplicates(subset=['Nombre Completo'])
