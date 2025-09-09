@@ -11,7 +11,6 @@ from datetime import date
 
 # Initialize Firebase (already done in the environment)
 try:
-    # Cargar la configuración como una cadena y luego parsearla a JSON
     firebase_config_str = st.secrets["FIREBASE_CONFIG"]
     firebase_config = json.loads(firebase_config_str)
     
@@ -44,9 +43,9 @@ def obtener_estudiantes_de_excel():
         if 'Nombre' in df.columns and 'Apellido' in df.columns:
             df['Nombre Completo'] = df['Nombre'].fillna('') + ' ' + df['Apellido'].fillna('')
             df['Nombre Completo'] = df['Nombre Completo'].str.strip()
-            for col in ['Cedula', 'Telefono']:
-                if col not in df.columns:
-                    df[col] = ''
+            df['Cedula'] = df['Cedula'].astype(str)
+            df['Telefono'] = df['Telefono'].astype(str)
+            
             return df[['Nombre Completo', 'Cedula', 'Telefono']]
         else:
             st.error("La hoja 'Lista' no contiene las columnas 'Nombre' y 'Apellido'.")
@@ -68,7 +67,9 @@ def obtener_estudiantes_agregados():
     
     registros = []
     for doc in docs:
-        registros.append(doc.to_dict())
+        data = doc.to_dict()
+        data['id'] = doc.id
+        registros.append(data)
     
     df = pd.DataFrame(registros)
     if not df.empty:
@@ -91,7 +92,6 @@ def agregar_estudiante(nombre, apellido, cedula, telefono):
     """
     estudiantes_ref = db.collection('estudiantes_agregados')
     
-    # Verifica si la cédula ya existe para evitar duplicados
     doc_ref = estudiantes_ref.document(str(cedula))
     doc = doc_ref.get()
     
@@ -107,54 +107,32 @@ def agregar_estudiante(nombre, apellido, cedula, telefono):
         st.success(f"¡Estudiante '{nombre} {apellido}' agregado exitosamente!")
     st.rerun()
 
-def main():
-    """Lógica principal de la aplicación Streamlit."""
-    st.set_page_config(layout="wide")
-    st.title('📋 Sistema de Asistencia y Gestión de Estudiantes')
-    
-    # ------------------
-    # Gestión de registros
-    # ------------------
-    st.markdown("---")
-    st.header('➕ Administrar Estudiantes')
-    st.write('Agrega nuevos estudiantes a la lista de asistencia.')
-    
-    with st.form(key='agregar_estudiante_form'):
-        col1, col2 = st.columns(2)
-        with col1:
-            nuevo_nombre = st.text_input('Nombre', key='nuevo_nombre')
-            nueva_cedula = st.text_input('Cédula', key='nueva_cedula')
-        with col2:
-            nuevo_apellido = st.text_input('Apellido', key='nuevo_apellido')
-            nuevo_telefono = st.text_input('Teléfono', key='nuevo_telefono')
-            
-        submit_button = st.form_submit_button(label='Guardar Estudiante')
-        
-    if submit_button:
-        if nuevo_nombre and nuevo_apellido and nueva_cedula:
-            agregar_estudiante(nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono)
-        else:
-            st.error("Por favor, completa los campos de Nombre, Apellido y Cédula.")
-            st.stop()
+def modificar_estudiante(cedula, nuevo_nombre, nuevo_apellido, nuevo_telefono):
+    """
+    Modifica un estudiante existente en la base de datos Firestore.
+    """
+    estudiantes_ref = db.collection('estudiantes_agregados').document(str(cedula))
+    estudiantes_ref.update({
+        'Nombre': nuevo_nombre,
+        'Apellido': nuevo_apellido,
+        'Telefono': nuevo_telefono
+    })
+    st.success(f"¡Estudiante con cédula '{cedula}' modificado exitosamente!")
+    st.rerun()
 
-    # ------------------
-    # Registro de asistencia
-    # ------------------
-    st.markdown("---")
-    st.header('📝 Registro de Asistencia')
+def eliminar_estudiante(cedula):
+    """
+    Elimina un estudiante de la base de datos Firestore.
+    """
+    estudiantes_ref = db.collection('estudiantes_agregados').document(str(cedula))
+    estudiantes_ref.delete()
+    st.success(f"¡Estudiante con cédula '{cedula}' eliminado exitosamente!")
+    st.rerun()
+
+def pagina_toma_asistencia(df_final):
+    st.header('📝 Toma de Asistencia')
     st.write('Selecciona la fecha y marca la asistencia de cada estudiante.')
     
-    # Intenta obtener la lista de estudiantes
-    with st.spinner('Cargando lista de estudiantes...'):
-        df_excel = obtener_estudiantes_de_excel()
-        df_registros = obtener_estudiantes_agregados()
-    
-    # Unir las listas y quitar duplicados
-    if not df_registros.empty:
-        df_final = pd.concat([df_excel, df_registros[['Nombre Completo']]], ignore_index=True).drop_duplicates(subset=['Nombre Completo'])
-    else:
-        df_final = df_excel.copy()
-
     estudiantes = df_final['Nombre Completo'].tolist()
     
     if not estudiantes:
@@ -201,6 +179,96 @@ def main():
         st.dataframe(df_asistencia, use_container_width=True)
     else:
         st.info("Aún no hay registros de asistencia.")
+
+def pagina_gestion_estudiantes(df_final):
+    st.header('🛠️ Gestión de Estudiantes')
+    st.write('Aquí puedes ver, agregar, modificar y eliminar registros de estudiantes.')
+    
+    # ------------------
+    # Gestión de registros
+    # ------------------
+    st.markdown("---")
+    
+    st.subheader('➕ Agregar Nuevo Estudiante')
+    with st.form(key='agregar_estudiante_form'):
+        col1, col2 = st.columns(2)
+        with col1:
+            nuevo_nombre = st.text_input('Nombre', key='nuevo_nombre')
+            nueva_cedula = st.text_input('Cédula', key='nueva_cedula')
+        with col2:
+            nuevo_apellido = st.text_input('Apellido', key='nuevo_apellido')
+            nuevo_telefono = st.text_input('Teléfono', key='nuevo_telefono')
+            
+        submit_button = st.form_submit_button(label='Guardar Estudiante')
+        
+    if submit_button:
+        if nuevo_nombre and nuevo_apellido and nueva_cedula:
+            agregar_estudiante(nuevo_nombre, nuevo_apellido, nueva_cedula, nuevo_telefono)
+        else:
+            st.error("Por favor, completa los campos de Nombre, Apellido y Cédula.")
+            st.stop()
+
+    st.markdown("---")
+
+    st.subheader('✏️ Modificar o Eliminar Estudiante')
+    if not df_final.empty:
+        df_final = df_final.set_index('Cedula')
+        estudiante_cedulas = df_final.index.tolist()
+        estudiante_seleccionado = st.selectbox(
+            'Selecciona un estudiante por cédula:',
+            options=estudiante_cedulas
+        )
+
+        if estudiante_seleccionado:
+            estudiante_data = df_final.loc[estudiante_seleccionado]
+            
+            with st.form(key='modificar_estudiante_form'):
+                col1, col2 = st.columns(2)
+                with col1:
+                    mod_nombre = st.text_input('Nombre', value=estudiante_data.get('Nombre', ''), key='mod_nombre')
+                    mod_cedula = st.text_input('Cédula', value=estudiante_data.name, key='mod_cedula', disabled=True)
+                with col2:
+                    mod_apellido = st.text_input('Apellido', value=estudiante_data.get('Apellido', ''), key='mod_apellido')
+                    mod_telefono = st.text_input('Teléfono', value=estudiante_data.get('Telefono', ''), key='mod_telefono')
+
+                col_mod, col_del = st.columns([1, 1])
+                with col_mod:
+                    modificar_button = st.form_submit_button('Modificar Estudiante')
+                with col_del:
+                    eliminar_button = st.form_submit_button('Eliminar Estudiante')
+
+            if modificar_button:
+                modificar_estudiante(mod_cedula, mod_nombre, mod_apellido, mod_telefono)
+            
+            if eliminar_button:
+                st.warning("Estás a punto de eliminar este estudiante. Esta acción es irreversible.")
+                if st.button('Confirmar Eliminación'):
+                    eliminar_estudiante(mod_cedula)
+    
+    st.markdown("---")
+    st.subheader('Tabla de Todos los Estudiantes')
+    st.dataframe(df_final, use_container_width=True)
+
+def main():
+    st.set_page_config(layout="wide")
+    st.title('📋 Sistema de Asistencia y Gestión de Estudiantes')
+    
+    # Intenta obtener la lista de estudiantes
+    with st.spinner('Cargando lista de estudiantes...'):
+        df_excel = obtener_estudiantes_de_excel()
+        df_registros = obtener_estudiantes_agregados()
+    
+    # Unir las listas y quitar duplicados
+    df_registros = df_registros[['Nombre Completo', 'Cedula', 'Telefono']] if not df_registros.empty else pd.DataFrame(columns=['Nombre Completo', 'Cedula', 'Telefono'])
+    df_final = pd.concat([df_excel, df_registros], ignore_index=True).drop_duplicates(subset=['Cedula'])
+
+    st.sidebar.title('Menú')
+    opcion = st.sidebar.radio('Navegación', ['Toma de Asistencia', 'Gestión de Estudiantes'])
+    
+    if opcion == 'Toma de Asistencia':
+        pagina_toma_asistencia(df_final)
+    elif opcion == 'Gestión de Estudiantes':
+        pagina_gestion_estudiantes(df_final)
 
 if __name__ == '__main__':
     main()
